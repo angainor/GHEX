@@ -57,6 +57,7 @@ add_library(ghexlib INTERFACE)
 add_library(GHEX::ghexlib ALIAS ghexlib)
 target_include_directories(ghexlib INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
     $<INSTALL_INTERFACE:include>
     )
 target_link_libraries(ghexlib INTERFACE GridTools::gridtools MPI::MPI_CXX)
@@ -121,6 +122,9 @@ install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 include(CMakePackageConfigHelpers)
 configure_package_config_file(cmake/GHEXConfig.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/GHEXConfig.cmake
                               INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake)
+
+configure_file(cmake/config.h.in config.h)
+
 write_basic_package_version_file(GHEXConfigVersion.cmake VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion)
 install(
     FILES

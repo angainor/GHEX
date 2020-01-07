@@ -11,7 +11,7 @@
 #ifndef INCLUDED_GHEX_TL_UCX_ENDPOINT_DB_PMI_HPP
 #define INCLUDED_GHEX_TL_UCX_ENDPOINT_DB_PMI_HPP
 
-#ifdef USE_PMIX
+#ifdef GHEX_USE_PMIX
 
 #define GHEX_USE_PMI
 #include "../util/pmi/pmix/pmi.hpp"
@@ -95,6 +95,6 @@ namespace gridtools {
     } // namespace ghex
 } // namespace gridtools
 
-#endif /* USE_PMIX */
+#endif /* GHEX_USE_PMIX */
 
 #endif /* INCLUDED_GHEX_TL_UCX_ENDPOINT_DB_MPI_HPP */

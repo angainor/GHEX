@@ -1,0 +1,2 @@
+#cmakedefine GHEX_USE_PMIX @GHEX_USE_PMIX@
+#cmakedefine GHEX_USE_UCP @GHEX_USE_UCP@

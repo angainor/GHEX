@@ -141,39 +141,38 @@ inline void __attribute__ ((always_inline)) x_verify(const int thrid, const int 
     }
 }
 
-#define Y_BLOCK(XBL, thrid, coords, arg, k, nbz, id)     \
+#define Y_BLOCK(XBL, thrid, coords, arg, k, nbz, id)            \
     {                                                           \
         int j;                                                  \
         nby = -1;                                               \
         for(j=halo; j<2*halo; j++){                             \
-            XBL(thrid, coords, arg, k, nbz, j, nby, id); \
+            XBL(thrid, coords, arg, k, nbz, j, nby, id);        \
         }                                                       \
         nby = 0;                                                \
         for(j=halo; j<halo + local_dims[1]; j++){               \
-            XBL(thrid, coords, arg, k, nbz, j, nby, id); \
+            XBL(thrid, coords, arg, k, nbz, j, nby, id);        \
         }                                                       \
         nby = 1;                                                \
         for(j=local_dims[1]; j<halo + local_dims[1]; j++){      \
-            XBL(thrid, coords, arg, k, nbz, j, nby, id); \
+            XBL(thrid, coords, arg, k, nbz, j, nby, id);        \
         }                                                       \
-    }                                                           \
+    }
 
-
-#define Z_BLOCK(XBL, thrid, coords, arg, id)                     \
-    {                                                                   \
-        int k;                                                          \
-        nbz = -1;                                                       \
-        for(k=halo; k<2*halo; k++){                                     \
-            Y_BLOCK(XBL, thrid, coords, arg, k, nbz, id);        \
-        }                                                               \
-        nbz = 0;                                                        \
-        for(k=halo; k<halo + local_dims[2]; k++){                       \
-            Y_BLOCK(XBL, thrid, coords, arg, k, nbz, id);        \
-        }                                                               \
-        nbz = 1;                                                        \
-        for(k=local_dims[2]; k<halo + local_dims[2]; k++){              \
-            Y_BLOCK(XBL, thrid, coords, arg, k, nbz, id);        \
-        }                                                               \
+#define Z_BLOCK(XBL, thrid, coords, arg, id)                    \
+    {                                                           \
+        int k;                                                  \
+        nbz = -1;                                               \
+        for(k=halo; k<2*halo; k++){                             \
+            Y_BLOCK(XBL, thrid, coords, arg, k, nbz, id);       \
+        }                                                       \
+        nbz = 0;                                                \
+        for(k=halo; k<halo + local_dims[2]; k++){               \
+            Y_BLOCK(XBL, thrid, coords, arg, k, nbz, id);       \
+        }                                                       \
+        nbz = 1;                                                \
+        for(k=local_dims[2]; k<halo + local_dims[2]; k++){      \
+            Y_BLOCK(XBL, thrid, coords, arg, k, nbz, id);       \
+        }                                                       \
     }
 
 #define PRINT_CUBE(data)                                                \
@@ -188,6 +187,7 @@ inline void __attribute__ ((always_inline)) x_verify(const int thrid, const int 
             printf("\n");                                               \
         }                                                               \
     }
+
 
 int main(int argc, char *argv[])
 {    
@@ -257,8 +257,7 @@ int main(int argc, char *argv[])
         /* exchange xpmem endpoints with node-local ranks */
         MPI_Allgather(MPI_IN_PLACE, num_fields, MPI_INT64_T, xpmem_endpoints, num_fields, MPI_INT64_T, MPI_COMM_WORLD);
         
-        /* xpmem segments to pointers */
-
+        /* attach xpmem segments to pointers */
         for(int ri=0; ri<num_ranks; ri++){
 
             if(rank==ri) continue;

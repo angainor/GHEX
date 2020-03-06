@@ -4,6 +4,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+#include <unistd.h>
+
+extern "C" {
+#include <xpmem.h>
+}
 
 using float_type = float;
 
@@ -17,6 +22,7 @@ size_t dimx, dimy, dimz;
 
 /* number of threads X number of cubes X data size */
 float_type ***data_cubes;
+xpmem_segid_t *xpmem_endpoints;
 
 static struct timeval tb, te;
 double bytes = 0;
@@ -183,37 +189,30 @@ inline void __attribute__ ((always_inline)) x_verify(const int thrid, const int 
         }                                                               \
     }
 
-
 int main(int argc, char *argv[])
 {    
-    int num_threads = 1;
-
-#pragma omp parallel
-    {
-#pragma omp master
-        num_threads = omp_get_num_threads();
-    }
+    int num_ranks = 1, rank;
 
     /* make a cartesian thread space */
     MPI_Init(&argc, &argv);
-    MPI_Dims_create(num_threads, 3, dims);
-    printf("cart dims %d %d %d\n", dims[0], dims[1], dims[2]);
+    MPI_Comm_size(MPI_COMM_WORLD, &num_ranks);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Dims_create(num_ranks, 3, dims);
+    if(0 == rank) printf("cart dims %d %d %d\n", dims[0], dims[1], dims[2]);
 
     /* allocate shared data structures */
-    data_cubes  = (float_type***)malloc(sizeof(float_type***)*num_threads);
+    data_cubes  = (float_type***)malloc(sizeof(float_type***)*num_ranks);
+    xpmem_endpoints  = (xpmem_segid_t*)malloc(sizeof(xpmem_segid_t*)*num_ranks*num_fields);
+    memset(xpmem_endpoints, 0, sizeof(xpmem_segid_t*)*num_ranks*num_fields);
 
-    /* allocate per-thread data */
-#pragma omp parallel
     {
-        int    thrid;
         int    coords[3];
         void **ptr;
         size_t memsize;
         int nby, nbz;
 
         /* create a cartesian periodic rank world */
-        thrid = omp_get_thread_num();
-        rank2coord(dims, thrid, coords);
+        rank2coord(dims, rank, coords);
 
         /* compute data size */
         dimx = (local_dims[0] + 2*halo);
@@ -222,54 +221,95 @@ int main(int argc, char *argv[])
         memsize = sizeof(float_type)*dimx*dimy*dimz;
 
         /* allocate per-thread fields */
-        data_cubes[thrid]  = (float_type**)malloc(sizeof(float_type**)*num_fields);
+        data_cubes[rank]  = (float_type**)malloc(sizeof(float_type**)*num_fields);
         for(int fi=0; fi<num_fields; fi++){
 
             /* allocate data and halos */
-            ptr = (void**)(data_cubes[thrid]+fi); 
-            posix_memalign(ptr, 64, memsize);
-            memset(data_cubes[thrid][fi], 0, memsize);
+            ptr = (void**)(data_cubes[rank]+fi); 
+            posix_memalign(ptr, 4096, memsize);
+            memset(data_cubes[rank][fi], 0, memsize);
+
+            /* share the memory */
+            {
+                int pagesize = getpagesize();
+                int xpmemsize = memsize;
+                if(memsize%pagesize) {
+                    xpmemsize = pagesize*((memsize/pagesize)+1);
+                }
+            
+                xpmem_endpoints[rank*num_fields + fi] = xpmem_make(data_cubes[rank][fi], xpmemsize, XPMEM_PERMIT_MODE, (void*)0666);
+                if(-1 == xpmem_endpoints[rank*num_fields + fi]){
+                    printf("failed to register xpmem segment\n");
+                    MPI_Abort(MPI_COMM_WORLD, -1);
+                }
+            }
             
             /* init domain data: owner thread id */
             for(size_t k=halo; k<dimz-halo; k++){
                 for(size_t j=halo; j<dimy-halo; j++){
                     for(size_t i=halo; i<dimx-halo; i++){
-                        data_cubes[thrid][fi][k*dimx*dimy + j*dimx + i] = thrid+1;
+                        data_cubes[rank][fi][k*dimx*dimy + j*dimx + i] = rank+1;
                     }
                 }
             }
         }
 
-#pragma omp barrier
+        /* exchange xpmem endpoints with node-local ranks */
+        MPI_Allgather(MPI_IN_PLACE, num_fields, MPI_INT64_T, xpmem_endpoints, num_fields, MPI_INT64_T, MPI_COMM_WORLD);
+        
+        /* xpmem segments to pointers */
+
+        for(int ri=0; ri<num_ranks; ri++){
+
+            if(rank==ri) continue;
+
+            data_cubes[ri]  = (float_type**)malloc(sizeof(float_type**)*num_fields);
+            for(int fi=0; fi<num_fields; fi++){
+
+                int pagesize = getpagesize();
+                int xpmemsize = memsize;
+                if(memsize%pagesize) {
+                    xpmemsize = pagesize*((memsize/pagesize)+1);
+                }
+
+                struct xpmem_addr addr;
+                addr.apid = xpmem_get(xpmem_endpoints[ri*num_fields + fi], XPMEM_RDWR, XPMEM_PERMIT_MODE, (void*)0666);
+                addr.offset = 0;
+
+                data_cubes[ri][fi] = (float_type*)xpmem_attach(addr, xpmemsize, NULL);
+            }
+        }
+    
         /* warmup */
+        MPI_Barrier(MPI_COMM_WORLD);
         for(int i=0; i<10; i++){
             for(int fi=0; fi<num_fields; fi++){
-                Z_BLOCK(x_copy_seq, thrid, coords, NULL, fi);
+                Z_BLOCK(x_copy_seq, rank, coords, NULL, fi);
             }
         }
-        
-#pragma omp barrier
-        tic();
 
         /* halo exchange */
+        MPI_Barrier(MPI_COMM_WORLD);
+        tic();
         for(int i=0; i<num_repetitions; i++){
             for(int fi=0; fi<num_fields; fi++){
-                Z_BLOCK(x_copy_seq, thrid, coords, NULL, fi);
+                Z_BLOCK(x_copy_seq, rank, coords, NULL, fi);
             }
         }
 
-#pragma omp barrier
-        bytes = 2*num_repetitions*num_threads*num_fields*(dimx*dimy*dimz-local_dims[0]*local_dims[1]*local_dims[2])*sizeof(float_type);
-        if(thrid==0) toc();
+        MPI_Barrier(MPI_COMM_WORLD);
+        bytes = 2*num_repetitions*num_ranks*num_fields*(dimx*dimy*dimz-local_dims[0]*local_dims[1]*local_dims[2])*sizeof(float_type);
+        if(rank==0) toc();
 
         /* verify that the data is correct */
         {
             int errors = 0;
             for(int fi=0; fi<num_fields; fi++){
-                Z_BLOCK(x_verify, thrid, coords, &errors, 0);
+                Z_BLOCK(x_verify, rank, coords, &errors, 0);
             }
             if(errors) printf("ERROR: %d values do not validate\n", errors);
         }
     }
+        
     MPI_Finalize();
 }

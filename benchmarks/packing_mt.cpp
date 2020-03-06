@@ -16,8 +16,7 @@ int dims[3] = {0};
 size_t dimx, dimy, dimz;
 
 /* number of threads X number of cubes X data size */
-float_type ***data_cubes_in;
-float_type ***data_cubes_out;
+float_type ***data_cubes;
 
 static struct timeval tb, te;
 double bytes = 0;
@@ -66,57 +65,73 @@ inline void __attribute__ ((always_inline)) x_copy_seq(const int thrid, const in
     int nb, i, dst_k, dst_j, dst_i;
     float *dst, *src;
 
-    src = data_cubes_in[thrid][id];
+    src = data_cubes[thrid][id];
 
-    if(nbz==-1)      dst_k = k + halo + local_dims[2];
-    else if(nbz==+1) dst_k = k - halo - local_dims[2];
+    if(nbz==-1)      dst_k = k + local_dims[2];
+    else if(nbz==1)  dst_k = k - local_dims[2];
     else             dst_k = k;
-
-    if(nby==-1)      dst_j = j + halo + local_dims[1];
-    else if(nby==+1) dst_j = j - halo - local_dims[1];
+    
+    if(nby==-1)      dst_j = j + local_dims[1];
+    else if(nby==1)  dst_j = j - local_dims[1];
     else             dst_j = j;
 
     nb  = coord2rank(dims, coords[0]-1, coords[1]+nby, coords[2]+nbz);
-    dst = data_cubes_out[nb][id];
-    dst_i = halo + local_dims[0];
-    for(i=0; i<halo; i++){
+    dst = data_cubes[nb][id];
+    dst_i = local_dims[0];
+#pragma ivdep
+    for(i=halo; i<2*halo; i++){
         dst[dst_k*dimx*dimy + dst_j*dimx + dst_i + i] = src[k*dimx*dimy + j*dimx + i];
     }
 
     nb  = coord2rank(dims, coords[0]+0, coords[1]+nby, coords[2]+nbz);
     if(nb != thrid) {
-        dst = data_cubes_out[nb][id];
-        dst_i = 0;
-        for(; i<1*halo + local_dims[0]; i++){
-            dst[dst_k*dimx*dimy + dst_j*dimx + dst_i + i] = src[k*dimx*dimy + j*dimx + i];
+        dst = data_cubes[nb][id];
+#pragma ivdep
+        for(i=halo; i<halo + local_dims[0]; i++){
+            dst[dst_k*dimx*dimy + dst_j*dimx + i] = src[k*dimx*dimy + j*dimx + i];
         }
-    } else i += local_dims[0];
+    }
 
     nb  = coord2rank(dims, coords[0]+1, coords[1]+nby, coords[2]+nbz);
-    dst = data_cubes_out[nb][id];
-    dst_i = - halo - local_dims[0];
-    for(; i<2*halo + local_dims[0]; i++){
+    dst = data_cubes[nb][id];
+    dst_i = -local_dims[0];
+#pragma ivdep
+    for(i=local_dims[0]; i<halo + local_dims[0]; i++){
         dst[dst_k*dimx*dimy + dst_j*dimx + dst_i + i] = src[k*dimx*dimy + j*dimx + i];
     }
 }
 
-inline void __attribute__ ((always_inline)) x_set(const int thrid, const int coords[3], 
-    int *, int k, int nbz, int j, int nby, int id)
+inline void __attribute__ ((always_inline)) x_verify(const int thrid, const int coords[3], 
+    int *errors, int k, int nbz, int j, int nby, int id)
 {
-    int nb, i;
-    float *dst = data_cubes_in[thrid][id];
+    int nb, i, dst_k, dst_j, dst_i;
+    float *dst;
+
+    dst = data_cubes[thrid][id];
+
+    if(nbz==-1)      dst_k = k - halo;
+    else if(nbz==1)  dst_k = k + halo;
+    else             dst_k = k;
+    
+    if(nby==-1)      dst_j = j - halo;
+    else if(nby==1)  dst_j = j + halo;
+    else             dst_j = j;
 
     nb  = coord2rank(dims, coords[0]-1, coords[1]+nby, coords[2]+nbz);
-    for(i=0; i<halo; i++){
-        dst[k*dimx*dimy + j*dimx + i] = nb+1;
+    dst_i = -halo;
+    for(i=halo; i<2*halo; i++){
+        *errors += dst[dst_k*dimx*dimy + dst_j*dimx + dst_i + i] != nb+1;
     }
+
     nb  = coord2rank(dims, coords[0]+0, coords[1]+nby, coords[2]+nbz);
-    for(; i<1*halo + local_dims[0]; i++){
-        dst[k*dimx*dimy + j*dimx + i] = nb+1;
+    for(i=halo; i<halo + local_dims[0]; i++){
+        *errors += dst[dst_k*dimx*dimy + dst_j*dimx + i] != nb+1;
     }
+
     nb  = coord2rank(dims, coords[0]+1, coords[1]+nby, coords[2]+nbz);
-    for(; i<2*halo + local_dims[0]; i++){
-        dst[k*dimx*dimy + j*dimx + i] = nb+1;
+    dst_i = halo;
+    for(i=local_dims[0]; i<halo + local_dims[0]; i++){
+        *errors += dst[dst_k*dimx*dimy + dst_j*dimx + dst_i + i] != nb+1;
     }
 }
 
@@ -124,15 +139,15 @@ inline void __attribute__ ((always_inline)) x_set(const int thrid, const int coo
     {                                                           \
         int j;                                                  \
         nby = -1;                                               \
-        for(j=0; j<halo; j++){                                  \
+        for(j=halo; j<2*halo; j++){                             \
             XBL(thrid, coords, buffer_pos, k, nbz, j, nby, id); \
         }                                                       \
         nby = 0;                                                \
-        for(; j<1*halo + local_dims[1]; j++){                   \
+        for(j=halo; j<halo + local_dims[1]; j++){               \
             XBL(thrid, coords, buffer_pos, k, nbz, j, nby, id); \
         }                                                       \
         nby = 1;                                                \
-        for(; j<2*halo + local_dims[1]; j++){                   \
+        for(j=local_dims[1]; j<halo + local_dims[1]; j++){      \
             XBL(thrid, coords, buffer_pos, k, nbz, j, nby, id); \
         }                                                       \
     }                                                           \
@@ -142,15 +157,15 @@ inline void __attribute__ ((always_inline)) x_set(const int thrid, const int coo
     {                                                                   \
         int k;                                                          \
         nbz = -1;                                                       \
-        for(k=0; k<halo; k++){                                          \
+        for(k=halo; k<2*halo; k++){                                     \
             Y_BLOCK(XBL, thrid, coords, buffer_pos, k, nbz, id);        \
         }                                                               \
         nbz = 0;                                                        \
-        for(; k<1*halo + local_dims[2]; k++){                           \
+        for(k=halo; k<halo + local_dims[2]; k++){                       \
             Y_BLOCK(XBL, thrid, coords, buffer_pos, k, nbz, id);        \
         }                                                               \
         nbz = 1;                                                        \
-        for(; k<2*halo + local_dims[2]; k++){                           \
+        for(k=local_dims[2]; k<halo + local_dims[2]; k++){              \
             Y_BLOCK(XBL, thrid, coords, buffer_pos, k, nbz, id);        \
         }                                                               \
     }
@@ -168,8 +183,9 @@ inline void __attribute__ ((always_inline)) x_set(const int thrid, const int coo
         }                                                               \
     }
 
-int main(int argc, char *argv[]){
-    
+
+int main(int argc, char *argv[])
+{    
     int num_threads = 1;
 
 #pragma omp parallel
@@ -184,8 +200,7 @@ int main(int argc, char *argv[]){
     printf("cart dims %d %d %d\n", dims[0], dims[1], dims[2]);
 
     /* allocate shared data structures */
-    data_cubes_in  = (float_type***)malloc(sizeof(float_type***)*num_threads);
-    data_cubes_out = (float_type***)malloc(sizeof(float_type***)*num_threads);
+    data_cubes  = (float_type***)malloc(sizeof(float_type***)*num_threads);
 
     /* allocate per-thread data */
 #pragma omp parallel
@@ -208,32 +223,45 @@ int main(int argc, char *argv[]){
         memsize = sizeof(float_type)*dimx*dimy*dimz;
 
         /* allocate per-thread fields */
-        data_cubes_in[thrid]  = (float_type**)malloc(sizeof(float_type**)*num_fields);
-        data_cubes_out[thrid] = (float_type**)malloc(sizeof(float_type**)*num_fields);
+        data_cubes[thrid]  = (float_type**)malloc(sizeof(float_type**)*num_fields);
         for(int fi=0; fi<num_fields; fi++){
 
-            /* allocate data */
-            ptr = (void**)(data_cubes_in[thrid]+fi); 
+            /* allocate data and halos */
+            ptr = (void**)(data_cubes[thrid]+fi); 
             posix_memalign(ptr, 64, memsize);
-            memset(data_cubes_in[thrid][fi], 0, memsize);
+            memset(data_cubes[thrid][fi], 0, memsize);
             
-            ptr = (void**)(data_cubes_out[thrid]+fi); 
-            posix_memalign(ptr, 64, memsize);
-            memset(data_cubes_out[thrid][fi], 0, memsize);
-
-            /* init data */
-            Z_BLOCK(x_set, thrid, coords, buffer_pos, fi);
+            /* init domain data: owner thread id */
+            for(size_t k=halo; k<dimz-halo; k++){
+                for(size_t j=halo; j<dimy-halo; j++){
+                    for(size_t i=halo; i<dimx-halo; i++){
+                        data_cubes[thrid][fi][k*dimx*dimy + j*dimx + i] = thrid+1;
+                    }
+                }
+            }
         }
-
+        
 #pragma omp barrier
         tic();
+
+        /* halo exchange */
         for(int i=0; i<num_repetitions; i++){
             for(int fi=0; fi<num_fields; fi++){
                 Z_BLOCK(x_copy_seq, thrid, coords, buffer_pos, fi);
             }
         }
+
 #pragma omp barrier
         bytes = 2*num_threads*(dimx*dimy*dimz-local_dims[0]*local_dims[1]*local_dims[2])*sizeof(float_type);
         if(thrid==0) toc();
+
+        /* verify that the data is correct */
+        {
+            int errors = 0;
+            for(int fi=0; fi<num_fields; fi++){
+                Z_BLOCK(x_verify, thrid, coords, &errors, 0);
+            }
+            if(errors) printf("ERROR: %d values do not validate\n", errors);
+        }
     }
 }

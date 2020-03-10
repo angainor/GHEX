@@ -6,6 +6,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+
 extern "C" {
 #include <xpmem.h>
 }
@@ -15,7 +16,7 @@ using float_type = float;
 const int local_dims[3] = {128, 128, 128};
 const int halo = 5;
 const int num_fields = 8;
-const int num_repetitions = 200;
+const int num_repetitions = 100;
 
 int dims[3] = {0};
 size_t dimx, dimy, dimz;

@@ -1,63 +1,11 @@
+#include "packing_common.h"
 #include <omp.h>
-#include <mpi.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/time.h>
 
-using float_type = float;
-
-const int local_dims[3] = {128, 128, 128};
-const int halo = 5;
-const int num_fields = 8;
-const int num_repetitions = 100;
-
-int dims[3] = {0};
+int dims[3] = {4, 4, 2};
 size_t dimx, dimy, dimz;
 
 /* number of threads X number of cubes X data size */
 float_type ***data_cubes;
-
-static struct timeval tb, te;
-double bytes = 0;
-void tic(void)
-{
-    gettimeofday(&tb, NULL);
-    bytes=0;
-    fflush(stdout);
-}
-
-void toc(void)
-{
-    long s,u;
-    double tt;
-    gettimeofday(&te, NULL);
-    s=te.tv_sec-tb.tv_sec;
-    u=te.tv_usec-tb.tv_usec;
-    tt=((double)s)*1000000+u;
-    printf("time:                  %li.%.6lis\n", (s*1000000+u)/1000000, (s*1000000+u)%1000000);
-    printf("MB/s:                  %.3lf\n", bytes/tt);
-    fflush(stdout);
-}
-
-inline void rank2coord(int dims[3], int rank, int coord[3])
-{
-    int tmp = rank;    coord[0] = tmp%dims[0];
-    tmp = tmp/dims[0]; coord[1] = tmp%dims[1];
-    tmp = tmp/dims[1]; coord[2] = tmp;
-}
-  
-inline int coord2rank(int dims[3], int coord0, int coord1, int coord2)
-{
-    // periodicity
-    if(coord0<0) coord0 = dims[0]-1;
-    if(coord1<0) coord1 = dims[1]-1;
-    if(coord2<0) coord2 = dims[2]-1;
-    if(coord0==dims[0])  coord0 = 0;
-    if(coord1==dims[1])  coord1 = 0;
-    if(coord2==dims[2])  coord2 = 0;
-    return (coord2*dims[1] + coord1)*dims[0] + coord0;
-}
 
 inline void __attribute__ ((always_inline)) x_copy_seq(const int rank, const int coords[3],
     int *, int k, int nbz, int j, int nby, int id)
@@ -78,7 +26,10 @@ inline void __attribute__ ((always_inline)) x_copy_seq(const int rank, const int
     nb  = coord2rank(dims, coords[0]-1, coords[1]+nby, coords[2]+nbz);
     dst = data_cubes[nb][id];
     dst_i = local_dims[0];
+
+#ifdef __INTEL_COMPILER
 #pragma ivdep
+#endif
     for(i=halo; i<2*halo; i++){
         dst[dst_k*dimx*dimy + dst_j*dimx + dst_i + i] = src[k*dimx*dimy + j*dimx + i];
     }
@@ -86,7 +37,10 @@ inline void __attribute__ ((always_inline)) x_copy_seq(const int rank, const int
     nb  = coord2rank(dims, coords[0]+0, coords[1]+nby, coords[2]+nbz);
     if(nb != rank) {
         dst = data_cubes[nb][id];
+
+#ifdef __INTEL_COMPILER
 #pragma ivdep
+#endif
         for(i=halo; i<halo + local_dims[0]; i++){
             dst[dst_k*dimx*dimy + dst_j*dimx + i] = src[k*dimx*dimy + j*dimx + i];
         }
@@ -95,7 +49,10 @@ inline void __attribute__ ((always_inline)) x_copy_seq(const int rank, const int
     nb  = coord2rank(dims, coords[0]+1, coords[1]+nby, coords[2]+nbz);
     dst = data_cubes[nb][id];
     dst_i = -local_dims[0];
+
+#ifdef __INTEL_COMPILER
 #pragma ivdep
+#endif
     for(i=local_dims[0]; i<halo + local_dims[0]; i++){
         dst[dst_k*dimx*dimy + dst_j*dimx + dst_i + i] = src[k*dimx*dimy + j*dimx + i];
     }
@@ -183,7 +140,7 @@ inline void __attribute__ ((always_inline)) x_verify(const int rank, const int c
     }
 
 
-int main(int argc, char *argv[])
+int main()
 {    
     int num_ranks = 1;
 
@@ -194,8 +151,6 @@ int main(int argc, char *argv[])
     }
 
     /* make a cartesian thread space */
-    MPI_Init(&argc, &argv);
-    MPI_Dims_create(num_ranks, 3, dims);
     printf("cart dims %d %d %d\n", dims[0], dims[1], dims[2]);
 
     /* allocate shared data structures */
@@ -246,7 +201,7 @@ int main(int argc, char *argv[])
                 Z_BLOCK(x_copy_seq, rank, coords, NULL, fi);
             }
         }
-        
+
 #pragma omp barrier
         tic();
 
@@ -271,5 +226,4 @@ int main(int argc, char *argv[])
             if(errors) printf("ERROR: %d values do not validate\n", errors);
         }
     }
-    MPI_Finalize();
 }

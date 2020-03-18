@@ -1,17 +1,8 @@
+#include "packing_common.h"
 #include <iostream>
-#include <array>
 #include <omp.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/time.h>
-using float_type = float;
 
-#define DIMX 128
 const int dims[3] = {4,4,2};
-const std::array<int,3> local_dims = {DIMX, DIMX, DIMX};
-const int halo = 5;
-const int num_fields = 8;
-const int num_repetitions = 100;
 
 // thread-private data accessed from pack/unpack routines
 float_type **data_cubes;
@@ -26,57 +17,7 @@ int nby, nbz, nb;
 float_type ***compact_buffers;     // a large buffer to store all fields, for each neighbor, including self
 float_type ****sequential_buffers; // num_fields small buffers for each neighbor, including self
 
-static struct timeval tb, te;
-double bytes = 0;
-void tic(void)
-{
-    gettimeofday(&tb, NULL);
-    bytes=0;
-    fflush(stdout);
-}
-
-void toc(void)
-{
-    long s,u;
-    double tt;
-    gettimeofday(&te, NULL);
-    s=te.tv_sec-tb.tv_sec;
-    u=te.tv_usec-tb.tv_usec;
-    tt=((double)s)*1000000+u;
-    printf("time:                  %li.%.6lis\n", (s*1000000+u)/1000000, (s*1000000+u)%1000000);
-    printf("MB/s:                  %.3lf\n", bytes/tt);
-    fflush(stdout);
-}
-
-inline void rank2coord(const int dims[3], int rank, int coord[3])
-{
-    int tmp = rank;    coord[0] = tmp%dims[0];
-    tmp = tmp/dims[0]; coord[1] = tmp%dims[1];
-    tmp = tmp/dims[1]; coord[2] = tmp;
-}
-  
-inline int coord2rank(const int dims[3], int coord0, int coord1, int coord2)
-{
-    // periodicity
-    if(coord0<0) coord0 = dims[0]-1;
-    if(coord1<0) coord1 = dims[1]-1;
-    if(coord2<0) coord2 = dims[2]-1;
-    if(coord0==dims[0])  coord0 = 0;
-    if(coord1==dims[1])  coord1 = 0;
-    if(coord2==dims[2])  coord2 = 0;
-    int nb = (coord2*dims[1] + coord1)*dims[0] + coord0;
-    if(nb>27 || nb<0){
-        printf("bad nb %d coord %d %d %d\n", nb, coord0, coord1, coord2);
-    }
-    return nb;
-}
-
-inline int id2nbid(const int i, const int j, const int k)
-{
-    return ((k+1)*3+j+1)*3+i+1;
-}
-
-inline void __attribute__ ((always_inline)) x_pack_seq(const int rank, const int coords[3],
+inline void __attribute__ ((always_inline)) x_pack_seq(const int rank, const int [3],
     int *, int k, int nbz, int j, int nby, int id)
 {
     int nbid, i;
@@ -88,28 +29,38 @@ inline void __attribute__ ((always_inline)) x_pack_seq(const int rank, const int
 
     nbid = id2nbid(-1, nby, nbz);
     dst = sequential_buffers[rank][nbid][id];
+
+#ifdef __INTEL_COMPILER
 #pragma ivdep
+#endif
     for(i=halo; i<2*halo; i++){
         dst[buffer_pos[nbid]++] = src[k*dimx*dimy + j*dimx + i];
     }
+
     nbid = id2nbid(0, nby, nbz);
     if(nbid != 13) {
         dst = sequential_buffers[rank][nbid][id];
+
+#ifdef __INTEL_COMPILER
 #pragma ivdep
+#endif
         for(i=halo; i<halo + local_dims[0]; i++){
             dst[buffer_pos[nbid]++] = src[k*dimx*dimy + j*dimx + i];
         }
     }
- 
+
     nbid = id2nbid(1, nby, nbz);
     dst = sequential_buffers[rank][nbid][id];
+
+#ifdef __INTEL_COMPILER
 #pragma ivdep
+#endif
     for(i=local_dims[0]; i<halo + local_dims[0]; i++){
         dst[buffer_pos[nbid]++] = src[k*dimx*dimy + j*dimx + i];
     }
 }
 
-inline void __attribute__ ((always_inline)) x_pack_compact(const int rank, const int coords[3],
+inline void __attribute__ ((always_inline)) x_pack_compact(const int rank, const int [3],
     int *, int k, int nbz, int j, int nby, int id)
 {
     int nbid, i;
@@ -120,26 +71,129 @@ inline void __attribute__ ((always_inline)) x_pack_compact(const int rank, const
 
     nbid = id2nbid(-1, nby, nbz);
     dst = compact_buffers[rank][nbid];
+
+#ifdef __INTEL_COMPILER
 #pragma ivdep
+#endif
     for(i=halo; i<2*halo; i++){
         dst[buffer_pos[nbid]++] = src[k*dimx*dimy + j*dimx + i];
     }
+
     nbid = id2nbid(0, nby, nbz);
     if(nbid != 13) {
         dst = compact_buffers[rank][nbid];
+
+#ifdef __INTEL_COMPILER
 #pragma ivdep
+#endif
         for(i=halo; i<halo + local_dims[0]; i++){
             dst[buffer_pos[nbid]++] = src[k*dimx*dimy + j*dimx + i];
         }
     }
- 
+
     nbid = id2nbid(1, nby, nbz);
     dst = compact_buffers[rank][nbid];
+
+#ifdef __INTEL_COMPILER
 #pragma ivdep
+#endif
     for(i=local_dims[0]; i<halo + local_dims[0]; i++){
         dst[buffer_pos[nbid]++] = src[k*dimx*dimy + j*dimx + i];
     }
 }
+
+inline void __attribute__ ((always_inline)) x_unpack_seq(const int, const int coords[3],
+    int *, int k, int nbz, int j, int nby, int id)
+{
+    int nb, nbid, i;
+    float *dst, *src;
+
+    // which cube to unpack
+    dst = data_cubes[id];
+
+    // flip signs to get our nbid in our neighbors context: where did he pack our data?
+    nbid = id2nbid(1, nby, nbz);
+    nb   = coord2rank(dims, coords[0]-1, coords[1]-nby, coords[2]-nbz);
+    src  = sequential_buffers[nb][nbid][id];
+
+#ifdef __INTEL_COMPILER
+#pragma ivdep
+#endif
+    for(i=0; i<halo; i++){
+        dst[k*dimx*dimy + j*dimx + i] = src[buffer_pos[nbid]++];
+    }
+
+    nbid = id2nbid(0, nby, nbz);
+    if(nbid != 13) {
+        nb   = coord2rank(dims, coords[0], coords[1]-nby, coords[2]-nbz);
+        src = sequential_buffers[nb][nbid][id];
+
+#ifdef __INTEL_COMPILER
+#pragma ivdep
+#endif
+        for(i=halo; i<halo + local_dims[0]; i++){
+            dst[k*dimx*dimy + j*dimx + i] = src[buffer_pos[nbid]++];
+        }
+    }
+
+    nbid = id2nbid(-1, nby, nbz);
+    nb   = coord2rank(dims, coords[0]+1, coords[1]-nby, coords[2]-nbz);
+    src = sequential_buffers[nb][nbid][id];
+
+#ifdef __INTEL_COMPILER
+#pragma ivdep
+#endif
+    for(i=local_dims[0]+halo; i<2*halo + local_dims[0]; i++){
+        dst[k*dimx*dimy + j*dimx + i] = src[buffer_pos[nbid]++];
+    }
+}
+
+inline void __attribute__ ((always_inline)) x_unpack_compact(const int, const int coords[3],
+    int *, int k, int nbz, int j, int nby, int id)
+{
+    int nb, nbid, i;
+    float *dst, *src;
+
+    // which cube to unpack
+    dst = data_cubes[id];
+
+    // flip signs to get our nbid in our neighbors context: where did he pack our data?
+    nbid = id2nbid(1, nby, nbz);
+    nb   = coord2rank(dims, coords[0]-1, coords[1]-nby, coords[2]-nbz);
+    src  = compact_buffers[nb][nbid];
+
+#ifdef __INTEL_COMPILER
+#pragma ivdep
+#endif
+    for(i=0; i<halo; i++){
+        dst[k*dimx*dimy + j*dimx + i] = src[buffer_pos[nbid]++];
+    }
+
+    nbid = id2nbid(0, nby, nbz);
+    if(nbid != 13) {
+        nb   = coord2rank(dims, coords[0], coords[1]-nby, coords[2]-nbz);
+        src  = compact_buffers[nb][nbid];
+
+#ifdef __INTEL_COMPILER
+#pragma ivdep
+#endif
+        for(i=halo; i<halo + local_dims[0]; i++){
+            dst[k*dimx*dimy + j*dimx + i] = src[buffer_pos[nbid]++];
+        }
+    }
+
+    nbid = id2nbid(-1, nby, nbz);
+    nb   = coord2rank(dims, coords[0]+1, coords[1]-nby, coords[2]-nbz);
+    src  = compact_buffers[nb][nbid];
+
+#ifdef __INTEL_COMPILER
+#pragma ivdep
+#endif
+    for(i=local_dims[0]+halo; i<2*halo + local_dims[0]; i++){
+        dst[k*dimx*dimy + j*dimx + i] = src[buffer_pos[nbid]++];
+    }
+}
+
 
 #define Y_BLOCK(XBL, rank, coords, arg, k, nbz, id)             \
     {                                                           \
@@ -175,6 +229,40 @@ inline void __attribute__ ((always_inline)) x_pack_compact(const int rank, const
         }                                                       \
     }
 
+#define Y_BLOCK_UNPACK(XBL, rank, coords, arg, k, nbz, id)              \
+    {                                                                   \
+        int j;                                                          \
+        nby = 1;                                                        \
+        for(j=0; j<halo; j++){                                          \
+            XBL(rank, coords, arg, k, nbz, j, nby, id);                 \
+        }                                                               \
+        nby = 0;                                                        \
+        for(j=halo; j<halo + local_dims[1]; j++){                       \
+            XBL(rank, coords, arg, k, nbz, j, nby, id);                 \
+        }                                                               \
+        nby = -1;                                                       \
+        for(j=local_dims[1]+halo; j<2*halo + local_dims[1]; j++){       \
+            XBL(rank, coords, arg, k, nbz, j, nby, id);                 \
+        }                                                               \
+    }
+
+#define Z_BLOCK_UNPACK(XBL, rank, coords, arg, id)                      \
+    {                                                                   \
+        int k;                                                          \
+        nbz = 1;                                                        \
+        for(k=0; k<halo; k++){                                          \
+            Y_BLOCK_UNPACK(XBL, rank, coords, arg, k, nbz, id);         \
+        }                                                               \
+        nbz = 0;                                                        \
+        for(k=halo; k<halo + local_dims[2]; k++){                       \
+            Y_BLOCK_UNPACK(XBL, rank, coords, arg, k, nbz, id);         \
+        }                                                               \
+        nbz = -1;                                                       \
+        for(k=local_dims[2]+halo; k<2*halo + local_dims[2]; k++){       \
+            Y_BLOCK_UNPACK(XBL, rank, coords, arg, k, nbz, id);         \
+        }                                                               \
+    }
+
 #define PRINT_CUBE(data)                                                \
     {                                                                   \
         for(size_t k=0; k<dimz; k++){                                   \
@@ -189,7 +277,7 @@ inline void __attribute__ ((always_inline)) x_pack_compact(const int rank, const
     }
 
 //TEST(packing, strategies) {
-int main(int argc, char *argv[]){
+int main(){
     int num_ranks = 1;
 
 #pragma omp parallel
@@ -201,14 +289,14 @@ int main(int argc, char *argv[]){
     // thread-shared for communication
     compact_buffers = (float_type***)malloc(sizeof(float_type***)*num_ranks);
     sequential_buffers = (float_type****)malloc(sizeof(float_type****)*num_ranks);
-    
+
 #pragma omp parallel
     {
         int    rank;
         int    coords[3];
         void **ptr;
         size_t memsize, halosize;
-        
+
         dimx = (local_dims[0] + 2*halo);
         dimy = (local_dims[1] + 2*halo);
         dimz = (local_dims[2] + 2*halo);
@@ -217,7 +305,7 @@ int main(int argc, char *argv[]){
         // create a cartesian periodic rank world
         rank = omp_get_thread_num();
         rank2coord(dims, rank, coords);
-        
+
 #pragma omp barrier
 
         // allocate per-thread fields
@@ -228,7 +316,7 @@ int main(int argc, char *argv[]){
             ptr = (void**)(data_cubes+fi);
             posix_memalign(ptr, 4096, memsize);
             memset(data_cubes[fi], 0, memsize);
-            
+
             // init domain data: owner thread id
             for(size_t k=halo; k<dimz-halo; k++){
                 for(size_t j=halo; j<dimy-halo; j++){
@@ -243,9 +331,6 @@ int main(int argc, char *argv[]){
         halosize =
             std::max(local_dims[0]*local_dims[1],
                 std::max(local_dims[0]*local_dims[2], local_dims[1]*local_dims[2]))*halo*sizeof(float_type);
-
-        if(rank==0)
-            printf("halo buffer size %d\n", halosize/sizeof(float_type));
 
         // allocate compact pack buffers
         compact_buffers[rank] = (float_type**)calloc(sizeof(float_type**), 27);
@@ -266,11 +351,6 @@ int main(int argc, char *argv[]){
             }
         }
 
- 
-        // PRINT_CUBE(data_cubes[0]);
-        memset(buffer_pos, 0, sizeof(int)*27);
-        Z_BLOCK(x_pack_seq, rank, coords, NULL, 0);
-
         // packing loop: put all data into split comm buffers - separate for each field
 #pragma omp barrier
         tic();
@@ -284,7 +364,28 @@ int main(int argc, char *argv[]){
         bytes = 0;
         for(int j=0; j<27; j++) bytes += buffer_pos[j];
         bytes = bytes*num_fields*num_repetitions*num_ranks*sizeof(float_type)*2;
-        if(rank==0) toc();
+        if(rank==0) {
+            printf("packing (sequence)\n");
+            toc();
+        }
+
+        // packing loop: put all data into split comm buffers - separate for each field
+#pragma omp barrier
+        tic();
+        for(int it=0; it<num_repetitions; it++){
+            for(int fid=0; fid<num_fields; fid++){
+                memset(buffer_pos, 0, sizeof(int)*27);
+                Z_BLOCK_UNPACK(x_unpack_seq, rank, coords, NULL, fid);
+            }
+        }
+#pragma omp barrier
+        bytes = 0;
+        for(int j=0; j<27; j++) bytes += buffer_pos[j];
+        bytes = bytes*num_fields*num_repetitions*num_ranks*sizeof(float_type)*2;
+        if(rank==0) {
+            printf("unpacking (sequence)\n");
+            toc();
+        }
 
         // validate
         for(int r=0; r<num_ranks; r++){
@@ -292,7 +393,7 @@ int main(int argc, char *argv[]){
                 for(int fid=0; fid<num_fields; fid++){
                     for(int i=0; i<27; i++){
                         if(i!=13)
-                            for(int j=0; j<buffer_pos[i]; j++) 
+                            for(int j=0; j<buffer_pos[i]; j++)
                                 if(sequential_buffers[rank][i][fid][j]!=rank+1) printf(".");
                     }
                 }
@@ -313,18 +414,39 @@ int main(int argc, char *argv[]){
         bytes = 0;
         for(int j=0; j<27; j++) bytes += buffer_pos[j];
         bytes = bytes*num_repetitions*num_ranks*sizeof(float_type)*2;
-        if(rank==0) toc();
+        if(rank==0) {
+            printf("packing (compact)\n");
+            toc();
+        }
 
         // validate
         for(int r=0; r<1; r++){
             if(rank==r){
                 for(int i=0; i<27; i++){
                     if(i!=13)
-                        for(int j=0; j<buffer_pos[i]; j++) 
+                        for(int j=0; j<buffer_pos[i]; j++)
                             if(compact_buffers[rank][i][j] != rank+1) printf(".");
                 }
             }
 #pragma omp barrier
-        }       
+        }
+
+        // packing loop: put all data into compact comm buffers - one per neighbor, fields combined
+#pragma omp barrier
+        tic();
+        for(int it=0; it<num_repetitions; it++){
+            memset(buffer_pos, 0, sizeof(int)*27);
+            for(int fid=0; fid<num_fields; fid++){
+                Z_BLOCK(x_unpack_compact, rank, coords, NULL, fid);
+            }
+        }
+#pragma omp barrier
+        bytes = 0;
+        for(int j=0; j<27; j++) bytes += buffer_pos[j];
+        bytes = bytes*num_repetitions*num_ranks*sizeof(float_type)*2;
+        if(rank==0) {
+            printf("unpacking (compact)\n");
+            toc();
+        }
     }
 }

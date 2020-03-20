@@ -23,6 +23,9 @@
 #include <stdio.h>
 #include <functional>
 
+#include "./common/timer.hpp"
+using timer_type = gridtools::ghex::timer;
+
 namespace gridtools {
 
     namespace ghex {
@@ -201,6 +204,8 @@ namespace gridtools {
 
         public: // ctors
 
+            timer_type tpack, tupack, tinit;
+
             communication_object(communicator_type comm)
             : m_valid(false) 
             , m_comm(comm)
@@ -237,14 +242,23 @@ namespace gridtools {
 
             template<typename... Archs, typename... Fields>
             void pack_unpack(buffer_info_type<Archs,Fields>... buffer_infos) {
+
                 // set up buffers, tags, whatever logic is needed
+                tinit.tic();
                 prepare_exchange(buffer_infos...);
                 // this function posts ready futures only
                 post_recvs();
+                tinit.toc();
                 // packs only (no send)
+                
+                tpack.tic();
                 pack();
+                tpack.toc();
+
                 // unpack
+                tupack.tic();
                 wait();
+                tupack.toc();
             }
 
         public: // exchange a number of buffer_infos with identical type (same field, device and pattern type)

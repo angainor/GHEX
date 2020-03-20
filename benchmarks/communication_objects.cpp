@@ -33,8 +33,8 @@ using arch_type = gridtools::ghex::cpu;
 using domain_descriptor_type = gridtools::ghex::structured::domain_descriptor<int,3>;
 
 using float_type = float;
-const std::array<int,3> local_dims = {64, 64, 64};
-const int halo = 1;
+const std::array<int,3> local_dims = {128, 128, 128};
+const int halo = 5;
 const int num_fields = 8;
 const int num_repetitions = 100;
 
@@ -49,7 +49,7 @@ void run_compact(Context& context, Communicator comm, Pattern& pattern, Fields& 
     auto co = gridtools::ghex::make_communication_object<Pattern>(comm);
     timer_type timer;
     // exchange
-    co.exchange(
+    co.pack_unpack(
         pattern(fields[0]),
         pattern(fields[1]),
         pattern(fields[2]),
@@ -57,11 +57,11 @@ void run_compact(Context& context, Communicator comm, Pattern& pattern, Fields& 
         pattern(fields[4]),
         pattern(fields[5]),
         pattern(fields[6]),
-        pattern(fields[7])).wait();
+        pattern(fields[7]));
     for (int i=0; i<num_repetitions; ++i)
     {
         timer.tic();
-        co.exchange(
+        co.pack_unpack(
             pattern(fields[0]),
             pattern(fields[1]),
             pattern(fields[2]),
@@ -69,12 +69,16 @@ void run_compact(Context& context, Communicator comm, Pattern& pattern, Fields& 
             pattern(fields[4]),
             pattern(fields[5]),
             pattern(fields[6]),
-            pattern(fields[7])).wait();
+            pattern(fields[7]));
         timer.toc();
     }
-    if (comm.rank() == 0)
+    if (comm.rank() == 0){
         std::cout << "rank 0:    mean exchange time compact:                  " << timer.mean()/1000
                   << " ± " << timer.stddev()/1000 << " ms" << std::endl;
+        std::cout << "rank 0: init  " << co.tinit.mean()/1000 << std::endl;
+        std::cout << "rank 0: pack  " << co.tpack.mean()/1000 << std::endl;
+        std::cout << "rank 0: upack " << co.tupack.mean()/1000 << std::endl;
+    }
     auto global_timer = ::gridtools::ghex::reduce(timer, context.mpi_comm());
     if (comm.rank() == 0)
         std::cout << "all ranks: mean exchange time compact:                  " << global_timer.mean()/1000
@@ -94,30 +98,34 @@ void run_sequence_Nco(Context& context, Communicator comm, Pattern& pattern, Fie
     auto co_7 = gridtools::ghex::make_communication_object<Pattern>(comm);
     timer_type timer;
     // exchange
-    co_0.exchange(pattern(fields[0])).wait();
-    co_1.exchange(pattern(fields[1])).wait();
-    co_2.exchange(pattern(fields[2])).wait();
-    co_3.exchange(pattern(fields[3])).wait();
-    co_4.exchange(pattern(fields[4])).wait();
-    co_5.exchange(pattern(fields[5])).wait();
-    co_6.exchange(pattern(fields[6])).wait();
-    co_7.exchange(pattern(fields[7])).wait();
+    co_0.pack_unpack(pattern(fields[0]));
+    co_1.pack_unpack(pattern(fields[1]));
+    co_2.pack_unpack(pattern(fields[2]));
+    co_3.pack_unpack(pattern(fields[3]));
+    co_4.pack_unpack(pattern(fields[4]));
+    co_5.pack_unpack(pattern(fields[5]));
+    co_6.pack_unpack(pattern(fields[6]));
+    co_7.pack_unpack(pattern(fields[7]));
     for (int i=0; i<num_repetitions; ++i)
     {
         timer.tic();
-        co_0.exchange(pattern(fields[0])).wait();
-        co_1.exchange(pattern(fields[1])).wait();
-        co_2.exchange(pattern(fields[2])).wait();
-        co_3.exchange(pattern(fields[3])).wait();
-        co_4.exchange(pattern(fields[4])).wait();
-        co_5.exchange(pattern(fields[5])).wait();
-        co_6.exchange(pattern(fields[6])).wait();
-        co_7.exchange(pattern(fields[7])).wait();
+        co_0.pack_unpack(pattern(fields[0]));
+        co_1.pack_unpack(pattern(fields[1]));
+        co_2.pack_unpack(pattern(fields[2]));
+        co_3.pack_unpack(pattern(fields[3]));
+        co_4.pack_unpack(pattern(fields[4]));
+        co_5.pack_unpack(pattern(fields[5]));
+        co_6.pack_unpack(pattern(fields[6]));
+        co_7.pack_unpack(pattern(fields[7]));
         timer.toc();
     }
-    if (comm.rank() == 0)
+    if (comm.rank() == 0){
         std::cout << "rank 0:    mean exchange time sequenced (multiple CO):  " << timer.mean()/1000
                   << " ± " << timer.stddev()/1000 << " ms" << std::endl;
+        std::cout << "rank 0: init  " << co_0.tinit.mean()/1000 << std::endl;
+        std::cout << "rank 0: pack  " << co_0.tpack.mean()/1000 << std::endl;
+        std::cout << "rank 0: upack " << co_0.tupack.mean()/1000 << std::endl;
+    }
     auto global_timer = ::gridtools::ghex::reduce(timer, context.mpi_comm());
     if (comm.rank() == 0)
         std::cout << "all ranks: mean exchange time sequenced (multiple CO):  " << global_timer.mean()/1000
@@ -130,30 +138,34 @@ void run_sequence_1co(Context& context, Communicator comm, Pattern& pattern, Fie
     auto co = gridtools::ghex::make_communication_object<Pattern>(comm);
     timer_type timer;
     // exchange
-    co.exchange(pattern(fields[0])).wait();
-    co.exchange(pattern(fields[1])).wait();
-    co.exchange(pattern(fields[2])).wait();
-    co.exchange(pattern(fields[3])).wait();
-    co.exchange(pattern(fields[4])).wait();
-    co.exchange(pattern(fields[5])).wait();
-    co.exchange(pattern(fields[6])).wait();
-    co.exchange(pattern(fields[7])).wait();
+    co.pack_unpack(pattern(fields[0]));
+    co.pack_unpack(pattern(fields[1]));
+    co.pack_unpack(pattern(fields[2]));
+    co.pack_unpack(pattern(fields[3]));
+    co.pack_unpack(pattern(fields[4]));
+    co.pack_unpack(pattern(fields[5]));
+    co.pack_unpack(pattern(fields[6]));
+    co.pack_unpack(pattern(fields[7]));
     for (int i=0; i<num_repetitions; ++i)
     {
         timer.tic();
-        co.exchange(pattern(fields[0])).wait();
-        co.exchange(pattern(fields[1])).wait();
-        co.exchange(pattern(fields[2])).wait();
-        co.exchange(pattern(fields[3])).wait();
-        co.exchange(pattern(fields[4])).wait();
-        co.exchange(pattern(fields[5])).wait();
-        co.exchange(pattern(fields[6])).wait();
-        co.exchange(pattern(fields[7])).wait();
+        co.pack_unpack(pattern(fields[0]));
+        co.pack_unpack(pattern(fields[1]));
+        co.pack_unpack(pattern(fields[2]));
+        co.pack_unpack(pattern(fields[3]));
+        co.pack_unpack(pattern(fields[4]));
+        co.pack_unpack(pattern(fields[5]));
+        co.pack_unpack(pattern(fields[6]));
+        co.pack_unpack(pattern(fields[7]));
         timer.toc();
     }
-    if (comm.rank() == 0)
+    if (comm.rank() == 0){
         std::cout << "rank 0:    mean exchange time sequenced (single CO):    " << timer.mean()/1000
                   << " ± " << timer.stddev()/1000 << " ms" << std::endl;
+        std::cout << "rank 0: init  " << co.tinit.mean()/1000 << std::endl;
+        std::cout << "rank 0: pack  " << co.tpack.mean()/1000 << std::endl;
+        std::cout << "rank 0: upack " << co.tupack.mean()/1000 << std::endl;
+    }
     auto global_timer = ::gridtools::ghex::reduce(timer, context.mpi_comm());
     if (comm.rank() == 0)
         std::cout << "all ranks: mean exchange time sequenced (single CO):    " << global_timer.mean()/1000
@@ -175,16 +187,20 @@ void run_rma(Context& context, Communicator comm, Pattern& pattern, Fields& fiel
         pattern(fields[7]));
     timer_type timer;
     // exchange
-    co.exchange();
+    co.pack_unpack();
     for (int i=0; i<num_repetitions; ++i)
     {
         timer.tic();
-        co.exchange();
+        co.pack_unpack();
         timer.toc();
     }
-    if (comm.rank() == 0)
+    if (comm.rank() == 0){
         std::cout << "rank 0:    mean exchange time RMA:                      " << timer.mean()/1000
                   << " ± " << timer.stddev()/1000 << " ms" << std::endl;
+        std::cout << "rank 0: init  " << co.tinit.mean()/1000 << std::endl;
+        std::cout << "rank 0: pack  " << co.tpack.mean()/1000 << std::endl;
+        std::cout << "rank 0: upack " << co.tupack.mean()/1000 << std::endl;
+    }
     auto global_timer = ::gridtools::ghex::reduce(timer, context.mpi_comm());
     if (comm.rank() == 0)
         std::cout << "all ranks: mean exchange time RMA:                      " << global_timer.mean()/1000
@@ -204,46 +220,47 @@ void run_rma_sequenced(Context& context, Communicator comm, Pattern& pattern, Fi
     auto co_7 = gridtools::ghex::make_bulk_communication_object<context_type::bulk_exchange_type>(comm, pattern(fields[7]));
     timer_type timer;
     // exchange
-    co_0.exchange();
-    co_1.exchange();
-    co_2.exchange();
-    co_3.exchange();
-    co_4.exchange();
-    co_5.exchange();
-    co_6.exchange();
-    co_7.exchange();
+    co_0.pack_unpack();
+    co_1.pack_unpack();
+    co_2.pack_unpack();
+    co_3.pack_unpack();
+    co_4.pack_unpack();
+    co_5.pack_unpack();
+    co_6.pack_unpack();
+    co_7.pack_unpack();
     for (int i=0; i<num_repetitions; ++i)
     {
         timer.tic();
-        co_0.exchange();
-        co_1.exchange();
-        co_2.exchange();
-        co_3.exchange();
-        co_4.exchange();
-        co_5.exchange();
-        co_6.exchange();
-        co_7.exchange();
-        //co_0.start_exchange();
-        //co_1.start_exchange();
-        //co_2.start_exchange();
-        //co_3.start_exchange();
-        //co_4.start_exchange();
-        //co_5.start_exchange();
-        //co_6.start_exchange();
-        //co_7.start_exchange();
-        //co_0.end_exchange();
-        //co_1.end_exchange();
-        //co_2.end_exchange();
-        //co_3.end_exchange();
-        //co_4.end_exchange();
-        //co_5.end_exchange();
-        //co_6.end_exchange();
-        //co_7.end_exchange();
+        co_0.pack_unpack();
+        co_1.pack_unpack();
+        co_2.pack_unpack();
+        co_3.pack_unpack();
+        co_4.pack_unpack();
+        co_5.pack_unpack();
+        co_6.pack_unpack();
+        co_7.pack_unpack();
+        //co_0.start_pack_unpack();
+        //co_1.start_pack_unpack();
+        //co_2.start_pack_unpack();
+        //co_3.start_pack_unpack();
+        //co_4.start_pack_unpack();
+        //co_5.start_pack_unpack();
+        //co_6.start_pack_unpack();
+        //co_7.start_pack_unpack();
+        //co_0.end_pack_unpack();
+        //co_1.end_pack_unpack();
+        //co_2.end_pack_unpack();
+        //co_3.end_pack_unpack();
+        //co_4.end_pack_unpack();
+        //co_5.end_pack_unpack();
+        //co_6.end_pack_unpack();
+        //co_7.end_pack_unpack();
         timer.toc();
     }
-    if (comm.rank() == 0)
+    if (comm.rank() == 0){
         std::cout << "rank 0:    mean exchange time RMA sequenced:            " << timer.mean()/1000
                   << " ± " << timer.stddev()/1000 << " ms" << std::endl;
+    }
     auto global_timer = ::gridtools::ghex::reduce(timer, context.mpi_comm());
     if (comm.rank() == 0)
         std::cout << "all ranks: mean exchange time RMA sequenced:            " << global_timer.mean()/1000
@@ -296,9 +313,7 @@ TEST(CommunicationObjects, strategies) {
         fields.push_back(gridtools::ghex::wrap_field<arch_type,2,1,0>(comm.rank(), ptr, offset, local_dims_extended));
 
     run_compact(context, comm, pattern, fields);
-
-    run_sequence_Nco(context, comm, pattern, fields);
-    
+    run_sequence_Nco(context, comm, pattern, fields);   
     run_sequence_1co(context, comm, pattern, fields);
     
     //run_rma(context, comm, pattern, fields);

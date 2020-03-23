@@ -401,7 +401,6 @@ int main(){
                 memset(buffer_pos, 0, sizeof(int)*27);
                 Z_BLOCK(x_pack_seq, rank, coords, NULL, fid);
             }
-#pragma omp barrier
         }
 #pragma omp barrier
         bytes = 0;
@@ -438,7 +437,6 @@ int main(){
                     }
                 local_nbid++;
             }
-#pragma omp barrier
         }
 #pragma omp barrier
         bytes = 0;
@@ -457,7 +455,6 @@ int main(){
                 memset(buffer_pos, 0, sizeof(int)*27);
                 Z_BLOCK_UNPACK(x_unpack_seq, rank, coords, NULL, fid);
             }
-#pragma omp barrier
         }
 #pragma omp barrier
         bytes = 0;
@@ -490,7 +487,6 @@ int main(){
             for(int fid=0; fid<num_fields; fid++){
                 Z_BLOCK(x_pack_compact, rank, coords, NULL, fid);
             }
-#pragma omp barrier
         }
 #pragma omp barrier
         bytes = 0;
@@ -522,7 +518,6 @@ int main(){
                 memcpy(compact_buffers_cpy[local_nbid], compact_buffers[nb[local_nbid]][nbid[local_nbid]], 
                     sizeof(float_type)*buffer_pos[local_nbid]);
             }
-#pragma omp barrier
         }
 #pragma omp barrier
         bytes = 0;
@@ -541,7 +536,6 @@ int main(){
             for(int fid=0; fid<num_fields; fid++){
                 Z_BLOCK(x_unpack_compact, rank, coords, NULL, fid);
             }
-#pragma omp barrier
         }
 #pragma omp barrier
         bytes = 0;

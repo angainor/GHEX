@@ -9,11 +9,11 @@
 
 using float_type = float;
 
-#define DIMX 128
+#define DIMX 64
 const int local_dims[3] = {DIMX, DIMX, DIMX};
 const int halo = 5;
 const int num_fields = 8;
-const int num_repetitions = 100;
+const int num_repetitions = 1000;
 
 static struct timeval tb, te;
 double bytes = 0;

@@ -122,9 +122,9 @@ void run_sequence_Nco(Context& context, Communicator comm, Pattern& pattern, Fie
     if (comm.rank() == 0){
         std::cout << "rank 0:    mean exchange time sequenced (multiple CO):  " << timer.mean()/1000
                   << " ± " << timer.stddev()/1000 << " ms" << std::endl;
-        std::cout << "rank 0: init  " << co_0.tinit.mean()/1000 << std::endl;
-        std::cout << "rank 0: pack  " << co_0.tpack.mean()/1000 << std::endl;
-        std::cout << "rank 0: upack " << co_0.tupack.mean()/1000 << std::endl;
+        std::cout << "rank 0: init  " << co_0.tinit.mean()*8/1000 << std::endl;
+        std::cout << "rank 0: pack  " << co_0.tpack.mean()*8/1000 << std::endl;
+        std::cout << "rank 0: upack " << co_0.tupack.mean()*8/1000 << std::endl;
     }
     auto global_timer = ::gridtools::ghex::reduce(timer, context.mpi_comm());
     if (comm.rank() == 0)
@@ -162,9 +162,9 @@ void run_sequence_1co(Context& context, Communicator comm, Pattern& pattern, Fie
     if (comm.rank() == 0){
         std::cout << "rank 0:    mean exchange time sequenced (single CO):    " << timer.mean()/1000
                   << " ± " << timer.stddev()/1000 << " ms" << std::endl;
-        std::cout << "rank 0: init  " << co.tinit.mean()/1000 << std::endl;
-        std::cout << "rank 0: pack  " << co.tpack.mean()/1000 << std::endl;
-        std::cout << "rank 0: upack " << co.tupack.mean()/1000 << std::endl;
+        std::cout << "rank 0: init  " << co.tinit.mean()*8/1000 << std::endl;
+        std::cout << "rank 0: pack  " << co.tpack.mean()*8/1000 << std::endl;
+        std::cout << "rank 0: upack " << co.tupack.mean()*8/1000 << std::endl;
     }
     auto global_timer = ::gridtools::ghex::reduce(timer, context.mpi_comm());
     if (comm.rank() == 0)

@@ -32,8 +32,9 @@ float_type ***sequential_buffers_cpy; // num_fields small buffers for each neigh
 inline void __attribute__ ((always_inline)) x_pack_seq(const int rank, const int [3],
     int *, int k, int nbz, int j, int nby, int id)
 {
-    int nbid, i;
+    int nbid;
     float *dst, *src;
+
 
     // which cube to pack
     src = data_cubes[id];
@@ -41,40 +42,56 @@ inline void __attribute__ ((always_inline)) x_pack_seq(const int rank, const int
     nbid = id2nbid(-1, nby, nbz);
     dst = sequential_buffers[rank][nbid][id];
 
+#ifdef USE_MEMCPY
+    memcpy(dst+buffer_pos[nbid], src+k*dimx*dimy + j*dimx + halo, sizeof(float_type)*halo);
+    buffer_pos[nbid]+=halo;
+#else
 #ifdef __INTEL_COMPILER
 #pragma ivdep
 #endif
-    for(i=halo; i<2*halo; i++){
+    for(int i=halo; i<2*halo; i++){
         dst[buffer_pos[nbid]++] = src[k*dimx*dimy + j*dimx + i];
     }
+#endif
 
     nbid = id2nbid(0, nby, nbz);
     if(nbid != 13) {
         dst = sequential_buffers[rank][nbid][id];
 
+#ifdef USE_MEMCPY
+        memcpy(dst+buffer_pos[nbid], src+k*dimx*dimy + j*dimx + halo, sizeof(float_type)*(local_dims[0]));
+        buffer_pos[nbid]+=local_dims[0];
+#else
 #ifdef __INTEL_COMPILER
 #pragma ivdep
 #endif
-        for(i=halo; i<halo + local_dims[0]; i++){
+        for(int i=halo; i<halo + local_dims[0]; i++){
             dst[buffer_pos[nbid]++] = src[k*dimx*dimy + j*dimx + i];
         }
+#endif
     }
 
     nbid = id2nbid(1, nby, nbz);
     dst = sequential_buffers[rank][nbid][id];
 
+#ifdef USE_MEMCPY
+    memcpy(dst+buffer_pos[nbid], src+k*dimx*dimy + j*dimx + local_dims[0], sizeof(float_type)*halo);
+    buffer_pos[nbid]+=halo;
+#else
 #ifdef __INTEL_COMPILER
 #pragma ivdep
 #endif
-    for(i=local_dims[0]; i<halo + local_dims[0]; i++){
+    for(int i=local_dims[0]; i<halo + local_dims[0]; i++){
         dst[buffer_pos[nbid]++] = src[k*dimx*dimy + j*dimx + i];
     }
+#endif
+
 }
 
 inline void __attribute__ ((always_inline)) x_pack_compact(const int rank, const int [3],
     int *, int k, int nbz, int j, int nby, int id)
 {
-    int nbid, i;
+    int nbid;
     float *dst, *src;
 
     // which cube to pack
@@ -83,40 +100,55 @@ inline void __attribute__ ((always_inline)) x_pack_compact(const int rank, const
     nbid = id2nbid(-1, nby, nbz);
     dst = compact_buffers[rank][nbid];
 
+#ifdef USE_MEMCPY
+    memcpy(dst+buffer_pos[nbid], src+k*dimx*dimy + j*dimx + halo, sizeof(float_type)*halo);
+    buffer_pos[nbid]+=halo;
+#else
 #ifdef __INTEL_COMPILER
 #pragma ivdep
 #endif
-    for(i=halo; i<2*halo; i++){
+    for(int i=halo; i<2*halo; i++){
         dst[buffer_pos[nbid]++] = src[k*dimx*dimy + j*dimx + i];
     }
+#endif
 
     nbid = id2nbid(0, nby, nbz);
     if(nbid != 13) {
         dst = compact_buffers[rank][nbid];
 
+#ifdef USE_MEMCPY
+        memcpy(dst+buffer_pos[nbid], src+k*dimx*dimy + j*dimx + halo, sizeof(float_type)*(local_dims[0]));
+        buffer_pos[nbid]+=local_dims[0];
+#else
 #ifdef __INTEL_COMPILER
 #pragma ivdep
 #endif
-        for(i=halo; i<halo + local_dims[0]; i++){
+        for(int i=halo; i<halo + local_dims[0]; i++){
             dst[buffer_pos[nbid]++] = src[k*dimx*dimy + j*dimx + i];
         }
+#endif
     }
 
     nbid = id2nbid(1, nby, nbz);
     dst = compact_buffers[rank][nbid];
 
+#ifdef USE_MEMCPY
+    memcpy(dst+buffer_pos[nbid], src+k*dimx*dimy + j*dimx + local_dims[0], sizeof(float_type)*halo);
+    buffer_pos[nbid]+=halo;
+#else
 #ifdef __INTEL_COMPILER
 #pragma ivdep
 #endif
-    for(i=local_dims[0]; i<halo + local_dims[0]; i++){
+    for(int i=local_dims[0]; i<halo + local_dims[0]; i++){
         dst[buffer_pos[nbid]++] = src[k*dimx*dimy + j*dimx + i];
     }
+#endif
 }
 
 inline void __attribute__ ((always_inline)) x_unpack_seq(const int, const int coords[3],
     int *, int k, int nbz, int j, int nby, int id)
 {
-    int nb, nbid, i;
+    int nb, nbid;
     float *dst, *src;
 
     // which cube to unpack
@@ -127,42 +159,57 @@ inline void __attribute__ ((always_inline)) x_unpack_seq(const int, const int co
     nb   = coord2rank(dims, coords[0]-1, coords[1]-nby, coords[2]-nbz);
     src  = sequential_buffers[nb][nbid][id];
 
+#ifdef USE_MEMCPY
+    memcpy(dst+k*dimx*dimy + j*dimx, src+buffer_pos[nbid], sizeof(float_type)*halo);
+    buffer_pos[nbid]+=halo;
+#else
 #ifdef __INTEL_COMPILER
 #pragma ivdep
 #endif
-    for(i=0; i<halo; i++){
+    for(int i=0; i<halo; i++){
         dst[k*dimx*dimy + j*dimx + i] = src[buffer_pos[nbid]++];
     }
+#endif
 
     nbid = id2nbid(0, nby, nbz);
     if(nbid != 13) {
         nb   = coord2rank(dims, coords[0], coords[1]-nby, coords[2]-nbz);
         src = sequential_buffers[nb][nbid][id];
 
+#ifdef USE_MEMCPY
+        memcpy(dst+k*dimx*dimy + j*dimx + halo, src+buffer_pos[nbid], sizeof(float_type)*local_dims[0]);
+        buffer_pos[nbid]+=local_dims[0];
+#else
 #ifdef __INTEL_COMPILER
 #pragma ivdep
 #endif
-        for(i=halo; i<halo + local_dims[0]; i++){
+        for(int i=halo; i<halo + local_dims[0]; i++){
             dst[k*dimx*dimy + j*dimx + i] = src[buffer_pos[nbid]++];
         }
+#endif
     }
 
     nbid = id2nbid(-1, nby, nbz);
     nb   = coord2rank(dims, coords[0]+1, coords[1]-nby, coords[2]-nbz);
     src = sequential_buffers[nb][nbid][id];
 
+#ifdef USE_MEMCPY
+    memcpy(dst+k*dimx*dimy + j*dimx + local_dims[0]+halo, src+buffer_pos[nbid], sizeof(float_type)*halo);
+    buffer_pos[nbid]+=halo;
+#else
 #ifdef __INTEL_COMPILER
 #pragma ivdep
 #endif
-    for(i=local_dims[0]+halo; i<2*halo + local_dims[0]; i++){
+    for(int i=local_dims[0]+halo; i<2*halo + local_dims[0]; i++){
         dst[k*dimx*dimy + j*dimx + i] = src[buffer_pos[nbid]++];
     }
+#endif
 }
 
 inline void __attribute__ ((always_inline)) x_unpack_compact(const int, const int coords[3],
     int *, int k, int nbz, int j, int nby, int id)
 {
-    int nb, nbid, i;
+    int nb, nbid;
     float *dst, *src;
 
     // which cube to unpack
@@ -173,36 +220,51 @@ inline void __attribute__ ((always_inline)) x_unpack_compact(const int, const in
     nb   = coord2rank(dims, coords[0]-1, coords[1]-nby, coords[2]-nbz);
     src  = compact_buffers[nb][nbid];
 
+#ifdef USE_MEMCPY
+    memcpy(dst+k*dimx*dimy + j*dimx, src+buffer_pos[nbid], sizeof(float_type)*halo);
+    buffer_pos[nbid]+=halo;
+#else
 #ifdef __INTEL_COMPILER
 #pragma ivdep
 #endif
-    for(i=0; i<halo; i++){
+    for(int i=0; i<halo; i++){
         dst[k*dimx*dimy + j*dimx + i] = src[buffer_pos[nbid]++];
     }
+#endif
 
     nbid = id2nbid(0, nby, nbz);
     if(nbid != 13) {
         nb   = coord2rank(dims, coords[0], coords[1]-nby, coords[2]-nbz);
         src  = compact_buffers[nb][nbid];
 
+#ifdef USE_MEMCPY
+        memcpy(dst+k*dimx*dimy + j*dimx + halo, src+buffer_pos[nbid], sizeof(float_type)*local_dims[0]);
+        buffer_pos[nbid]+=local_dims[0];
+#else
 #ifdef __INTEL_COMPILER
 #pragma ivdep
 #endif
-        for(i=halo; i<halo + local_dims[0]; i++){
+        for(int i=halo; i<halo + local_dims[0]; i++){
             dst[k*dimx*dimy + j*dimx + i] = src[buffer_pos[nbid]++];
         }
+#endif
     }
 
     nbid = id2nbid(-1, nby, nbz);
     nb   = coord2rank(dims, coords[0]+1, coords[1]-nby, coords[2]-nbz);
     src  = compact_buffers[nb][nbid];
 
+#ifdef USE_MEMCPY
+    memcpy(dst+k*dimx*dimy + j*dimx + local_dims[0]+halo, src+buffer_pos[nbid], sizeof(float_type)*halo);
+    buffer_pos[nbid]+=halo;
+#else
 #ifdef __INTEL_COMPILER
 #pragma ivdep
 #endif
-    for(i=local_dims[0]+halo; i<2*halo + local_dims[0]; i++){
+    for(int i=local_dims[0]+halo; i<2*halo + local_dims[0]; i++){
         dst[k*dimx*dimy + j*dimx + i] = src[buffer_pos[nbid]++];
     }
+#endif
 }
 
 

@@ -33,7 +33,7 @@ using arch_type = gridtools::ghex::cpu;
 using domain_descriptor_type = gridtools::ghex::structured::domain_descriptor<int,3>;
 
 using float_type = float;
-const std::array<int,3> local_dims = {64, 64, 64};
+const std::array<int,3> local_dims = {128, 128, 128};
 const int halo = 5;
 const int num_fields = 8;
 const int num_repetitions = 100;
@@ -58,6 +58,9 @@ void run_compact(Context& context, Communicator comm, Pattern& pattern, Fields& 
         pattern(fields[5]),
         pattern(fields[6]),
         pattern(fields[7]));
+    co.tinit.clear();
+    co.tpack.clear();
+    co.tupack.clear();
     for (int i=0; i<num_repetitions; ++i)
     {
         timer.tic();
@@ -106,6 +109,30 @@ void run_sequence_Nco(Context& context, Communicator comm, Pattern& pattern, Fie
     co_5.pack_unpack(pattern(fields[5]));
     co_6.pack_unpack(pattern(fields[6]));
     co_7.pack_unpack(pattern(fields[7]));
+    co_0.tinit.clear();
+    co_0.tpack.clear();
+    co_0.tupack.clear();
+    co_1.tinit.clear();
+    co_1.tpack.clear();
+    co_1.tupack.clear();
+    co_2.tinit.clear();
+    co_2.tpack.clear();
+    co_2.tupack.clear();
+    co_3.tinit.clear();
+    co_3.tpack.clear();
+    co_3.tupack.clear();
+    co_4.tinit.clear();
+    co_4.tpack.clear();
+    co_4.tupack.clear();
+    co_5.tinit.clear();
+    co_5.tpack.clear();
+    co_5.tupack.clear();
+    co_6.tinit.clear();
+    co_6.tpack.clear();
+    co_6.tupack.clear();
+    co_7.tinit.clear();
+    co_7.tpack.clear();
+    co_7.tupack.clear();
     for (int i=0; i<num_repetitions; ++i)
     {
         timer.tic();
@@ -146,6 +173,9 @@ void run_sequence_1co(Context& context, Communicator comm, Pattern& pattern, Fie
     co.pack_unpack(pattern(fields[5]));
     co.pack_unpack(pattern(fields[6]));
     co.pack_unpack(pattern(fields[7]));
+    co.tinit.clear();
+    co.tpack.clear();
+    co.tupack.clear();
     for (int i=0; i<num_repetitions; ++i)
     {
         timer.tic();

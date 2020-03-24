@@ -524,7 +524,7 @@ int main(){
         for(int j=0; j<27; j++) bytes += buffer_pos[j];
         bytes = bytes*num_repetitions*num_ranks*sizeof(float_type)*2;
         if(rank==0) {
-            printf("copy (sequence)\n");
+            printf("copy (compact)\n");
             toc();
         }
 

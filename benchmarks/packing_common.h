@@ -9,7 +9,7 @@
 
 using float_type = float;
 
-// #define USE_MEMCPY
+#define USE_MEMCPY
 #define DIMX 128
 const int local_dims[3] = {DIMX, DIMX, DIMX};
 const int halo = 5;

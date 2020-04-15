@@ -254,11 +254,13 @@ namespace gridtools {
                 tpack.tic();
                 pack();
                 tpack.toc();
+                // printf("toc pack %e\n", t);
 
                 // unpack
                 tupack.tic();
                 wait();
                 tupack.toc();
+                // printf("toc UNpack %e\n", t);
             }
 
         public: // exchange a number of buffer_infos with identical type (same field, device and pattern type)

@@ -253,10 +253,83 @@ namespace gridtools {
                     }
                 }
             };
+
+            // forward declaration
+            template<int D, int I, typename Layout>
+            struct for_loop_pointer_arithmetic_pack;
+
+            /** @brief generation of loop nest for an D-dimensional array assuming contiguous memory 
+             *
+             * This template class provides compile time recursive nesting of D for-loops
+             * and calls a function at the end of the iteration with the following 2 argments
+             * - offset in a global D-dimensional array
+             * - offset in a flattened buffer of the size of the accumulated iteration space the loop nest spans.
+             *
+             * @tparam D dimensionality of loop nest
+             * @tparam I I==D to start recursion
+             * @tparam Args compile time list of integral constants indicating order of loop nest*/
+            template<int D, int I, int... Args>
+            struct for_loop_pointer_arithmetic_pack<D,I,gridtools::layout_map<Args...>>
+            {
+            private: // member types
+                using layout_t = gridtools::layout_map<Args...>;
+                using idx = std::integral_constant<int, layout_t::template find<D-I>()>;
+                friend class for_loop_pointer_arithmetic_pack<D,I+1,layout_t>;
+
+            public: // static member functions
+                /**
+                 * @brief generate loop nest
+                 * @tparam Func functor type with signature void(std::size_t, std::size_t)
+                 * @tparam Array coordinate vector type
+                 * @tparam Array2 coordinate difference vector type
+                 * @param f functor instance
+                 * @param first first coordinate in loop nest
+                 * @param last last coordinate in loop nest
+                 * @param extent extent of multi-dimensional array of which [first, last] is a sub-region
+                 * @param coordinate_offset distance from first coordinate in the multi-dimensional array to the origin (0,0,...). 
+                 * An array without buffer zones has a coordinate offset of (0,0,...), while the offset is (1,1,...) for an array with buffer zone of 1.
+                 */
+                template<typename Func, typename Array, typename Strides, typename Array2>
+                GT_FORCE_INLINE static void apply(Func&& f, Array&& first, Array&& last, Strides&& byte_strides, Array2&& coordinate_offset) noexcept
+                {
+                    std::size_t iter = 0;
+                    for(auto i=first[idx::value]; i<=last[idx::value]; ++i, ++iter)
+                    {
+                        for_loop_pointer_arithmetic_pack<D,I-1,layout_t>::apply(
+                            std::forward<Func>(f), 
+                            std::forward<Array>(first), 
+                            std::forward<Array>(last), 
+                            std::forward<Strides>(byte_strides), 
+                            std::forward<Array2>(coordinate_offset), 
+                            (i+coordinate_offset[idx::value])*byte_strides[idx::value], 
+                            iter);
+                    }
+                }
+
+            private: // implementation details
+                template<typename Func, typename Array, typename Strides, typename Array2>
+                GT_FORCE_INLINE static void apply(Func&& f, Array&& first, Array&& last, Strides&& byte_strides, Array2&& coordinate_offset, 
+                                         std::size_t offset, std::size_t iter) noexcept
+                {
+                    //offset *= extent[idx::value];
+                    iter   *= last[idx::value]-first[idx::value]+1;
+                    for(auto i=first[idx::value]; i<=last[idx::value]; ++i, ++iter)
+                    {
+                        for_loop_pointer_arithmetic_pack<D,I-1,layout_t>::apply(
+                            std::forward<Func>(f), 
+                            std::forward<Array>(first), 
+                            std::forward<Array>(last), 
+                            std::forward<Strides>(byte_strides), 
+                            std::forward<Array2>(coordinate_offset), 
+                            offset+(i+coordinate_offset[idx::value])*byte_strides[idx::value], 
+                            iter);
+                    }
+                }
+            };
             
             // end of recursion
             template<int D, int... Args>
-            struct for_loop_pointer_arithmetic<D,1,gridtools::layout_map<Args...>>
+            struct for_loop_pointer_arithmetic_pack<D,1,gridtools::layout_map<Args...>>
             {
                 using layout_t = gridtools::layout_map<Args...>;
                 using idx = std::integral_constant<int, layout_t::template find<D-1>()>;
@@ -276,6 +349,23 @@ namespace gridtools {
             // end of recursion
             template<int D, int... Args>
             struct for_loop_pointer_arithmetic<D,0,gridtools::layout_map<Args...>>
+            {
+                using layout_t = gridtools::layout_map<Args...>;
+                template<typename Func, typename Array, typename Strides, typename Array2>
+                GT_FORCE_INLINE static void apply(Func&& f, Array&&, Array&&, Strides&& byte_strides, Array2&&, 
+                                         std::size_t offset, std::size_t iter) noexcept
+                {
+                    // functor call with two arguments
+                    // argument 1: offset in global multi-dimensional array
+                    // argument 2: offset within region defined by [first, last]
+                    using idx0 = std::integral_constant<int, layout_t::template find<D-1>()>;
+                    f(offset, iter*byte_strides[idx0::value]);
+                }
+            };
+
+            // end of recursion
+            template<int D, int... Args>
+            struct for_loop_pointer_arithmetic_pack<D,0,gridtools::layout_map<Args...>>
             {
                 using layout_t = gridtools::layout_map<Args...>;
                 template<typename Func, typename Array, typename Strides, typename Array2>

@@ -147,6 +147,10 @@ if (GHEX_BUILD_TESTS OR GHEX_BUILD_BENCHMARKS)
     endif()
 endif()
 
+if (USE_GPU)
+   target_compile_definitions(ghexlib INTERFACE GHEX_USE_GPU)
+endif()
+
 include(GNUInstallDirs)
 install(TARGETS ghexlib EXPORT GHEX-targets LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(EXPORT GHEX-targets

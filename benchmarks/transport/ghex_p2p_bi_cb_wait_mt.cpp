@@ -40,7 +40,12 @@ using context_type = ghex::tl::context<transport, threading>;
 using communicator_type = typename context_type::communicator_type;
 using future_type = typename communicator_type::request_cb_type;
 
-using MsgType = gridtools::ghex::tl::shared_message_buffer<>;
+#if GHEX_USE_GPU
+#include <ghex/allocator/cuda_allocator.hpp>
+using MsgType = gridtools::ghex::tl::message_buffer<gridtools::ghex::allocator::cuda::allocator<unsigned char>>;
+#else
+using MsgType = gridtools::ghex::tl::message_buffer<>;
+#endif
 
 
 #ifdef USE_OPENMP
@@ -90,6 +95,12 @@ int main(int argc, char *argv[])
     }
 #else
     MPI_Init_thread(NULL, NULL, MPI_THREAD_SINGLE, &mode);
+#endif
+
+#if GHEX_USE_GPU
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    cudaSetDevice(rank+2);
 #endif
 
     {
@@ -146,8 +157,10 @@ int main(int argc, char *argv[])
             for(int j=0; j<inflight; j++){
                 smsgs.emplace_back(buff_size);
                 rmsgs.emplace_back(buff_size);
+#if !GHEX_USE_GPU
                 make_zero(smsgs[j]);
                 make_zero(rmsgs[j]);
+#endif
             }
             sreqs.resize(inflight);
             rreqs.resize(inflight);

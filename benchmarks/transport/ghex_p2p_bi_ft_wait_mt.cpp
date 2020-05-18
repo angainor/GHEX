@@ -40,8 +40,12 @@ using context_type = ghex::tl::context<transport, threading>;
 using communicator_type = typename context_type::communicator_type;
 using future_type = typename communicator_type::future<void>;
 
+#if GHEX_USE_GPU
+#include <ghex/allocator/cuda_allocator.hpp>
+using MsgType = gridtools::ghex::tl::message_buffer<gridtools::ghex::allocator::cuda::allocator<unsigned char>>;
+#else
 using MsgType = gridtools::ghex::tl::message_buffer<>;
-
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -79,6 +83,12 @@ int main(int argc, char *argv[])
     MPI_Init_thread(NULL, NULL, MPI_THREAD_SINGLE, &mode);
 #endif
 
+#if GHEX_USE_GPU
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    cudaSetDevice(rank+2);
+#endif
+
     {
         auto context_ptr = ghex::tl::context_factory<transport,threading>::create(num_threads, MPI_COMM_WORLD);
         auto& context = *context_ptr;
@@ -113,8 +123,10 @@ int main(int argc, char *argv[])
             {
                 smsgs[j].resize(buff_size);
                 rmsgs[j].resize(buff_size);
-                make_zero(smsgs[j]);
-                make_zero(rmsgs[j]);
+#if !GHEX_USE_GPU
+		make_zero(smsgs[j]);
+		make_zero(rmsgs[j]);
+#endif
             }
 
             comm.barrier();

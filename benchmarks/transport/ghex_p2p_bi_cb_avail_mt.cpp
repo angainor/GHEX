@@ -40,8 +40,12 @@ using context_type = ghex::tl::context<transport, threading>;
 using communicator_type = typename context_type::communicator_type;
 using future_type = typename communicator_type::request_cb_type;
 
-using MsgType = gridtools::ghex::tl::shared_message_buffer<>;
-
+#if GHEX_USE_GPU
+#include <ghex/allocator/cuda_allocator.hpp>
+using MsgType = gridtools::ghex::tl::message_buffer<gridtools::ghex::allocator::cuda::allocator<unsigned char>>;
+#else
+using MsgType = gridtools::ghex::tl::message_buffer<>;
+#endif
 
 #ifdef USE_OPENMP
 std::atomic<int> sent(0);
@@ -89,6 +93,12 @@ int main(int argc, char *argv[])
     }
 #else
     MPI_Init_thread(NULL, NULL, MPI_THREAD_SINGLE, &mode);
+#endif
+
+#if GHEX_USE_GPU
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    cudaSetDevice(rank+2);
 #endif
 
     {
@@ -147,8 +157,10 @@ int main(int argc, char *argv[])
             {
                 smsgs[j].resize(buff_size);
                 rmsgs[j].resize(buff_size);
+#if !GHEX_USE_GPU
                 make_zero(smsgs[j]);
                 make_zero(rmsgs[j]);
+#endif
             }
 
             comm.barrier();
@@ -189,9 +201,9 @@ int main(int argc, char *argv[])
 
                 for(int j=0; j<inflight; j++)
                 {
-                    if(rmsgs[j].use_count() == 1)
-                        //if (rreqs[j].test())
-                    {
+		  // if(rmsgs[j].use_count() == 1)
+		  if (rreqs[j].test())
+		    {
                         submit_recv_cnt += num_threads;
                         rdbg += num_threads;
                         dbg += num_threads;
@@ -200,8 +212,8 @@ int main(int argc, char *argv[])
                     else
                         comm.progress();
 
-                    if(sent < niter && smsgs[j].use_count() == 1)
-                        //if(sent < niter && sreqs[j].test())
+		  //if(sent < niter && smsgs[j].use_count() == 1)
+		    if(sent < niter && sreqs[j].test())
                     {
                         submit_cnt += num_threads;
                         sdbg += num_threads;

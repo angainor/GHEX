@@ -11,9 +11,10 @@
 #ifndef INCLUDED_GHEX_CUDA_ERROR_HPP
 #define INCLUDED_GHEX_CUDA_ERROR_HPP
 
-#ifdef __CUDACC__
+#ifdef GHEX_USE_GPU
 
 #include <string>
+#include <cuda_runtime.h>
 
 #ifdef NDEBUG
     #define GHEX_CHECK_CUDA_RESULT(x) x;

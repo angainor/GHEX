@@ -14,7 +14,8 @@
 #include <memory>
 #include "../cuda_utils/error.hpp"
 
-#ifdef __CUDACC__
+#ifdef GHEX_USE_GPU
+#include <cuda_runtime.h>
 namespace gridtools {
     namespace ghex {
         namespace allocator {

@@ -7,7 +7,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-using float_type = double;
+using float_type = float;
 
 #define USE_MEMCPY
 #define DIMX 128

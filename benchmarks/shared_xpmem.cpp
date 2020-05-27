@@ -2,7 +2,6 @@
 #include <omp.h>
 #include <mpi.h>
 
-
 extern "C" {
 #include <xpmem.h>
 }

@@ -7,6 +7,81 @@ size_t dimx, dimy, dimz;
 /* number of threads X number of cubes X data size */
 float_type ***data_cubes;
 
+inline void __attribute__ ((always_inline)) x_copy_seq1(const int rank, const int coords[3],
+    int *, int k, int nbz, int j, int nby, int id)
+{
+    int nb, i, dst_k, dst_j, dst_i;
+    float_type *dst, *src;
+
+    src = data_cubes[rank][id];
+
+    if(nbz==-1)      dst_k = k + local_dims[2];
+    else if(nbz==1)  dst_k = k - local_dims[2];
+    else             dst_k = k;
+    
+    if(nby==-1)      dst_j = j + local_dims[1];
+    else if(nby==1)  dst_j = j - local_dims[1];
+    else             dst_j = j;
+
+    nb  = coord2rank(dims, coords[0]-1, coords[1]+nby, coords[2]+nbz);
+    dst = data_cubes[nb][id];
+    dst_i = local_dims[0];
+
+    for(i=halo; i<2*halo; i++){
+        dst[dst_k*dimx*dimy + dst_j*dimx + dst_i + i] = src[k*dimx*dimy + j*dimx + i];
+    }
+}
+
+inline void __attribute__ ((always_inline)) x_copy_seq2(const int rank, const int coords[3],
+    int *, int k, int nbz, int j, int nby, int id)
+{
+    int nb, i, dst_k, dst_j, dst_i;
+    float_type *dst, *src;
+
+    src = data_cubes[rank][id];
+
+    if(nbz==-1)      dst_k = k + local_dims[2];
+    else if(nbz==1)  dst_k = k - local_dims[2];
+    else             dst_k = k;
+    
+    if(nby==-1)      dst_j = j + local_dims[1];
+    else if(nby==1)  dst_j = j - local_dims[1];
+    else             dst_j = j;
+
+    nb  = coord2rank(dims, coords[0]+0, coords[1]+nby, coords[2]+nbz);
+    if(nb != rank) {
+        dst = data_cubes[nb][id];
+        for(i=halo; i<halo + local_dims[0]; i++){
+            dst[dst_k*dimx*dimy + dst_j*dimx + i] = src[k*dimx*dimy + j*dimx + i];
+        }
+    }
+}
+
+inline void __attribute__ ((always_inline)) x_copy_seq3(const int rank, const int coords[3],
+    int *, int k, int nbz, int j, int nby, int id)
+{
+    int nb, i, dst_k, dst_j, dst_i;
+    float_type *dst, *src;
+
+    src = data_cubes[rank][id];
+
+    if(nbz==-1)      dst_k = k + local_dims[2];
+    else if(nbz==1)  dst_k = k - local_dims[2];
+    else             dst_k = k;
+    
+    if(nby==-1)      dst_j = j + local_dims[1];
+    else if(nby==1)  dst_j = j - local_dims[1];
+    else             dst_j = j;
+
+    nb  = coord2rank(dims, coords[0]+1, coords[1]+nby, coords[2]+nbz);
+    dst = data_cubes[nb][id];
+    dst_i = -local_dims[0];
+
+    for(i=local_dims[0]; i<halo + local_dims[0]; i++){
+        dst[dst_k*dimx*dimy + dst_j*dimx + dst_i + i] = src[k*dimx*dimy + j*dimx + i];
+    }
+}
+
 inline void __attribute__ ((always_inline)) x_copy_seq(const int rank, const int coords[3],
     int *, int k, int nbz, int j, int nby, int id)
 {
@@ -92,6 +167,46 @@ inline void __attribute__ ((always_inline)) x_verify(const int rank, const int c
     }
 }
 
+#define Y_BLOCK_SPLIT(XBL, rank, coords, arg, k, nbz, id)       \
+    {                                                           \
+        int j;                                                  \
+        nby = -1;                                               \
+        for(j=halo; j<2*halo; j++){                             \
+            XBL(rank, coords, arg, k, nbz, j, nby, id);         \
+        }                                                       \
+        nby = 0;                                                \
+        for(j=halo; j<halo + local_dims[1]; j++){               \
+            XBL##1(rank, coords, arg, k, nbz, j, nby, id);      \
+        }                                                       \
+        for(j=halo; j<halo + local_dims[1]; j++){               \
+            XBL##2(rank, coords, arg, k, nbz, j, nby, id);      \
+        }                                                       \
+        for(j=halo; j<halo + local_dims[1]; j++){               \
+            XBL##3(rank, coords, arg, k, nbz, j, nby, id);      \
+        }                                                       \
+        nby = 1;                                                \
+        for(j=local_dims[1]; j<halo + local_dims[1]; j++){      \
+            XBL(rank, coords, arg, k, nbz, j, nby, id);         \
+        }                                                       \
+    }
+
+#define Z_BLOCK_SPLIT(XBL, rank, coords, arg, id)               \
+    {                                                           \
+        int k;                                                  \
+        nbz = -1;                                               \
+        for(k=halo; k<2*halo; k++){                             \
+            Y_BLOCK_SPLIT(XBL, rank, coords, arg, k, nbz, id);  \
+        }                                                       \
+        nbz = 0;                                                \
+        for(k=halo; k<halo + local_dims[2]; k++){               \
+            Y_BLOCK_SPLIT(XBL, rank, coords, arg, k, nbz, id);  \
+        }                                                       \
+        nbz = 1;                                                \
+        for(k=local_dims[2]; k<halo + local_dims[2]; k++){      \
+            Y_BLOCK_SPLIT(XBL, rank, coords, arg, k, nbz, id);  \
+        }                                                       \
+    }
+
 #define Y_BLOCK(XBL, rank, coords, arg, k, nbz, id)             \
     {                                                           \
         int j;                                                  \
@@ -168,6 +283,7 @@ int main()
         /* create a cartesian periodic rank world */
         rank = omp_get_thread_num();
         rank2coord(dims, rank, coords);
+        printf("thrid %d coord %d %d %d\n", rank, coords[0], coords[1], coords[2]); 
 
         /* compute data size */
         dimx = (local_dims[0] + 2*halo);
@@ -198,7 +314,7 @@ int main()
         /* warmup */
         for(int i=0; i<10; i++){
             for(int fi=0; fi<num_fields; fi++){
-                Z_BLOCK(x_copy_seq, rank, coords, NULL, fi);
+                Z_BLOCK_SPLIT(x_copy_seq, rank, coords, NULL, fi);
             }
         }
 
@@ -209,7 +325,7 @@ int main()
         for(int i=0; i<num_repetitions; i++){
 #pragma omp barrier
             for(int fi=0; fi<num_fields; fi++){
-                Z_BLOCK(x_copy_seq, rank, coords, NULL, fi);
+                Z_BLOCK_SPLIT(x_copy_seq, rank, coords, NULL, fi);
             }
         }
 

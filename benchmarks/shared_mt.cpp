@@ -283,7 +283,6 @@ int main()
         /* create a cartesian periodic rank world */
         rank = omp_get_thread_num();
         rank2coord(dims, rank, coords);
-        printf("thrid %d coord %d %d %d\n", rank, coords[0], coords[1], coords[2]); 
 
         /* compute data size */
         dimx = (local_dims[0] + 2*halo);
@@ -312,7 +311,7 @@ int main()
 
 #pragma omp barrier
         /* warmup */
-        for(int i=0; i<10; i++){
+        for(int i=0; i<2; i++){
             for(int fi=0; fi<num_fields; fi++){
                 Z_BLOCK_SPLIT(x_copy_seq, rank, coords, NULL, fi);
             }
@@ -333,6 +332,10 @@ int main()
         bytes = 2*num_repetitions*num_ranks*num_fields*(dimx*dimy*dimz-local_dims[0]*local_dims[1]*local_dims[2])*sizeof(float_type);
         if(rank==0) toc();
 
+	// if(rank==0){
+	//     PRINT_CUBE(data_cubes[rank][0]);
+	// }
+	
         /* verify that the data is correct */
         {
             int errors = 0;

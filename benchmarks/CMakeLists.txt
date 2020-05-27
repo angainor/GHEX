@@ -2,7 +2,7 @@
 # -----------------
 
 # Variable used for benchmarks that DO NOT require multithreading support
-set(_benchmarks_simple simple_comm_test_halo_exchange_3D_generic_full communication_objects shared_mt shared_xpmem shared_mmap cart_locality packing_mt packing_ranges_mt)
+set(_benchmarks_simple simple_comm_test_halo_exchange_3D_generic_full communication_objects shared_mt shared_xpmem shared_mmap cart_locality packing_mt packing_ranges_mt shared_ranges_mt)
 # Variable used for benchmarks that require multithreading support
 set(_benchmarks_simple_mt )
 foreach (_t ${_benchmarks_simple})

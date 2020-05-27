@@ -11,7 +11,7 @@ inline void __attribute__ ((always_inline)) x_copy_seq(const int rank, const int
     int *, int k, int nbz, int j, int nby, int id)
 {
     int nb, i, dst_k, dst_j, dst_i;
-    float *dst, *src;
+    float_type *dst, *src;
 
     src = data_cubes[rank][id];
 
@@ -62,7 +62,7 @@ inline void __attribute__ ((always_inline)) x_verify(const int rank, const int c
     int *errors, int k, int nbz, int j, int nby, int id)
 {
     int nb, i, dst_k, dst_j, dst_i;
-    float *dst;
+    float_type *dst;
 
     dst = data_cubes[rank][id];
 

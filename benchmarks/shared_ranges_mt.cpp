@@ -1,5 +1,6 @@
 #include "packing_common.h"
 #include <omp.h>
+#include <stdint.h>
 
 int dims[3] = {4, 4, 2};
 size_t dimx, dimy, dimz;
@@ -7,14 +8,60 @@ size_t dimx, dimy, dimz;
 /* number of threads X number of cubes X data size */
 float_type ***data_cubes;
 
-inline void put_halo(float_type *__restrict__ dst, const float_type *__restrict__ src, int *src_space, int *dst_space)
+typedef int_fast64_t size_type;
+typedef unsigned char byte;
+
+void __attribute__((noinline))
+put_halo(float_type *__restrict__ dst, const float_type *__restrict__ src, size_type *src_space, size_type *dst_space)
 {
-    int ks, kd, js, jd, is, id;
+    size_type ks, kd, js, jd, is, id;
+
     for(ks=src_space[0], kd=dst_space[0]; ks<src_space[1]; ks++, kd++){
         for(js=src_space[2], jd=dst_space[2]; js<src_space[3]; js++, jd++){
-	    for(is=src_space[4], id=dst_space[4]; is<src_space[5]; is++, id++){
-		dst[kd*dimx*dimy + jd*dimx + id] = src[ks*dimx*dimy + js*dimx + is];
+	    for(size_type is=src_space[4], id=dst_space[4]; is<src_space[5]; is++, id++){
+	        dst[kd*dimx*dimy + jd*dimx + id] = src[ks*dimx*dimy + js*dimx + is];
             }
+            // memcpy(dst + kd*dimx*dimy + jd*dimx + dst_space[4], 
+            //     src + ks*dimx*dimy + js*dimx + src_space[4], 
+            //     sizeof(float_type)*(src_space[5]-src_space[4]));
+        }
+    }
+}
+
+byte*  __attribute__((noinline)) get_buffer3(float_type *m_buffer, const size_type* coord, const size_type* inner_offset, const size_type *outer_stride)
+{
+    return reinterpret_cast<byte*>(m_buffer) +
+        (coord[0] + inner_offset[0]) * outer_stride[0] +
+        (coord[1] + inner_offset[1]) * outer_stride[1] +
+        (coord[2] + inner_offset[2]) * outer_stride[2] ;
+}
+
+
+void __attribute__((noinline))
+put_halo2(float_type *__restrict__ dst, float_type *__restrict__ src, size_type *src_space, size_type *dst_space,
+    const size_type* inner_offset, const size_type * outer_stride)
+{
+    size_type ks, kd, js, jd, is, id;
+    byte *dptr, *sptr;
+    size_type coord[3];
+
+    for(ks=src_space[0], kd=dst_space[0]; ks<src_space[1]; ks++, kd++){
+        for(js=src_space[2], jd=dst_space[2]; js<src_space[3]; js++, jd++){
+            {
+                const size_type coord[3]{0,jd,kd};
+                dptr = get_buffer3(dst, coord, inner_offset, outer_stride);
+            }
+            {
+                const size_type coord[3]{0,js,ks};
+                sptr = get_buffer3(src, coord, inner_offset, outer_stride);
+            }
+
+	    // for(size_type is=src_space[4]*sizeof(float_type), id=dst_space[4]*sizeof(float_type);  is<src_space[5]*sizeof(float_type); is++, id++){
+	    //     dptr[id] = sptr[is];
+            // }
+            memcpy(dptr+dst_space[4]*sizeof(float_type), 
+                sptr+src_space[4]*sizeof(float_type), 
+                sizeof(float_type)*(src_space[5]-src_space[4]));
         }
     }
 }
@@ -95,9 +142,9 @@ inline void __attribute__ ((always_inline)) x_verify(const int rank, const int c
     it_space[nbid][4] = xlo;                    \
     it_space[nbid][5] = xhi;                    \
 
-inline void X_RANGE_SRC(int **it_space, int zlo, int zhi, int nbz, int ylo, int yhi, int nby)
+inline void X_RANGE_SRC(size_type **it_space, size_type zlo, size_type zhi, size_type nbz, size_type ylo, size_type yhi, size_type nby)
 {
-    int xlo, xhi, nbx, nbid;
+    size_type xlo, xhi, nbx, nbid;
     xlo = halo;
     xhi = 2*halo;
     nbx = -1;
@@ -131,9 +178,9 @@ inline void X_RANGE_SRC(int **it_space, int zlo, int zhi, int nbz, int ylo, int 
         Y_RANGE_SRC(it_space, local_dims[2], halo + local_dims[2], 1);	\
     }
 
-inline void X_RANGE_DST(int **it_space, int zlo, int zhi, int nbz, int ylo, int yhi, int nby)
+inline void X_RANGE_DST(size_type **it_space, size_type zlo, size_type zhi, size_type nbz, size_type ylo, size_type yhi, size_type nby)
 {
-    int xlo, xhi, nbx, nbid;
+    size_type xlo, xhi, nbx, nbid;
     xlo = 0;
     xhi = halo;
     nbx = -1;
@@ -209,15 +256,15 @@ int main()
         rank = omp_get_thread_num();
         rank2coord(dims, rank, coords);
 
-        int **iteration_spaces_pack;              // for each thread, for each nbor, 6 ints
-        int **iteration_spaces_unpack;              // for each thread, for each nbor, 6 ints
+        size_type **iteration_spaces_pack;              // for each thread, for each nbor, 6 size_types
+        size_type **iteration_spaces_unpack;              // for each thread, for each nbor, 6 ints
 
         // explicitly create halo iteration spaces
-        iteration_spaces_pack = (int**)malloc(sizeof(int**)*27);
-        iteration_spaces_unpack = (int**)malloc(sizeof(int**)*27);
-        for(int nbid=0; nbid<27; nbid++){
-            iteration_spaces_pack[nbid] = (int*)malloc(sizeof(int*)*6);
-            iteration_spaces_unpack[nbid] = (int*)malloc(sizeof(int*)*6);
+        iteration_spaces_pack = (size_type**)malloc(sizeof(size_type**)*27);
+        iteration_spaces_unpack = (size_type**)malloc(sizeof(size_type**)*27);
+        for(size_type nbid=0; nbid<27; nbid++){
+            iteration_spaces_pack[nbid] = (size_type*)malloc(sizeof(size_type*)*6);
+            iteration_spaces_unpack[nbid] = (size_type*)malloc(sizeof(size_type*)*6);
         }
         
         Z_RANGE_SRC(iteration_spaces_pack);        
@@ -262,6 +309,9 @@ int main()
             }
         }
 	
+        size_type inner_offset[3]{0,0,0};
+        size_type outer_stride[3]{1*sizeof(float_type),dimx*sizeof(float_type),dimx*dimy*sizeof(float_type)};
+
 #pragma omp barrier
         /* warmup */
         for(int it=0; it<2; it++){
@@ -270,7 +320,8 @@ int main()
                     if(nbid==13) continue;
 		    float_type *src = data_cubes[rank][fid];
 		    float_type *dst = data_cubes[nb[nbid]][fid];
-                    put_halo(dst, src, iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                    put_halo2(dst, src, iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid], inner_offset, outer_stride);
+                    // put_halo(dst, src, iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
                 }
             }
 	}
@@ -283,8 +334,36 @@ int main()
                     if(nbid==13) continue;
 		    float_type *src = data_cubes[rank][fid];
 		    float_type *dst = data_cubes[nb[nbid]][fid];
-                    put_halo(dst, src, iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                    put_halo2(dst, src, iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid], inner_offset, outer_stride);
+                    //put_halo(dst, src, iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
                 }
+                // int nbid;
+                // nbid=3; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=9; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=10; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=20; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=7; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=2; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=15; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=4; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=25; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=6; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=21; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=23; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=8; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=18; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=5; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=14; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=16; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=17; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=12; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=1; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=0; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=22; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=26; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=24; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=11; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                // nbid=19; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
             }
 #pragma omp barrier
         }

@@ -159,4 +159,73 @@ inline void X_RANGE_DST(size_type **it_space, size_type zlo, size_type zhi, size
         }                                                               \
     }
 
+
+#define Y_BLOCK(XBL, rank, coords, arg, k, nbz, id)             \
+    {                                                           \
+        int j;                                                  \
+        int nby = -1;                                           \
+        for(j=halo; j<2*halo; j++){                             \
+            XBL(rank, coords, arg, k, nbz, j, nby, id);         \
+        }                                                       \
+        nby = 0;                                                \
+        for(j=halo; j<halo + local_dims[1]; j++){               \
+            XBL(rank, coords, arg, k, nbz, j, nby, id);         \
+        }                                                       \
+        nby = 1;                                                \
+        for(j=local_dims[1]; j<halo + local_dims[1]; j++){      \
+            XBL(rank, coords, arg, k, nbz, j, nby, id);         \
+        }                                                       \
+    }
+
+#define Z_BLOCK(XBL, rank, coords, arg, id)                     \
+    {                                                           \
+        int k;                                                  \
+        int nbz = -1;                                           \
+        for(k=halo; k<2*halo; k++){                             \
+            Y_BLOCK(XBL, rank, coords, arg, k, nbz, id);        \
+        }                                                       \
+        nbz = 0;                                                \
+        for(k=halo; k<halo + local_dims[2]; k++){               \
+            Y_BLOCK(XBL, rank, coords, arg, k, nbz, id);        \
+        }                                                       \
+        nbz = 1;                                                \
+        for(k=local_dims[2]; k<halo + local_dims[2]; k++){      \
+            Y_BLOCK(XBL, rank, coords, arg, k, nbz, id);        \
+        }                                                       \
+    }
+
+#define Y_BLOCK_UNPACK(XBL, rank, coords, arg, k, nbz, id)              \
+    {                                                                   \
+        int j;                                                          \
+        nby = 1;                                                        \
+        for(j=0; j<halo; j++){                                          \
+            XBL(rank, coords, arg, k, nbz, j, nby, id);                 \
+        }                                                               \
+        nby = 0;                                                        \
+        for(j=halo; j<halo + local_dims[1]; j++){                       \
+            XBL(rank, coords, arg, k, nbz, j, nby, id);                 \
+        }                                                               \
+        nby = -1;                                                       \
+        for(j=local_dims[1]+halo; j<2*halo + local_dims[1]; j++){       \
+            XBL(rank, coords, arg, k, nbz, j, nby, id);                 \
+        }                                                               \
+    }
+
+#define Z_BLOCK_UNPACK(XBL, rank, coords, arg, id)                      \
+    {                                                                   \
+        int k;                                                          \
+        nbz = 1;                                                        \
+        for(k=0; k<halo; k++){                                          \
+            Y_BLOCK_UNPACK(XBL, rank, coords, arg, k, nbz, id);         \
+        }                                                               \
+        nbz = 0;                                                        \
+        for(k=halo; k<halo + local_dims[2]; k++){                       \
+            Y_BLOCK_UNPACK(XBL, rank, coords, arg, k, nbz, id);         \
+        }                                                               \
+        nbz = -1;                                                       \
+        for(k=local_dims[2]+halo; k<2*halo + local_dims[2]; k++){       \
+            Y_BLOCK_UNPACK(XBL, rank, coords, arg, k, nbz, id);         \
+        }                                                               \
+    }
+
 #endif /*  _INCLUDED_PACKING_COMMON_H_ */

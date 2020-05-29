@@ -1,5 +1,4 @@
 #include "packing_common.h"
-#include <omp.h>
 #include <mpi.h>
 
 extern "C" {
@@ -98,54 +97,6 @@ inline void __attribute__ ((always_inline)) x_verify(const int thrid, const int 
     }
 }
 
-#define Y_BLOCK(XBL, thrid, coords, arg, k, nbz, id)            \
-    {                                                           \
-        int j;                                                  \
-        nby = -1;                                               \
-        for(j=halo; j<2*halo; j++){                             \
-            XBL(thrid, coords, arg, k, nbz, j, nby, id);        \
-        }                                                       \
-        nby = 0;                                                \
-        for(j=halo; j<halo + local_dims[1]; j++){               \
-            XBL(thrid, coords, arg, k, nbz, j, nby, id);        \
-        }                                                       \
-        nby = 1;                                                \
-        for(j=local_dims[1]; j<halo + local_dims[1]; j++){      \
-            XBL(thrid, coords, arg, k, nbz, j, nby, id);        \
-        }                                                       \
-    }
-
-#define Z_BLOCK(XBL, thrid, coords, arg, id)                    \
-    {                                                           \
-        int k;                                                  \
-        nbz = -1;                                               \
-        for(k=halo; k<2*halo; k++){                             \
-            Y_BLOCK(XBL, thrid, coords, arg, k, nbz, id);       \
-        }                                                       \
-        nbz = 0;                                                \
-        for(k=halo; k<halo + local_dims[2]; k++){               \
-            Y_BLOCK(XBL, thrid, coords, arg, k, nbz, id);       \
-        }                                                       \
-        nbz = 1;                                                \
-        for(k=local_dims[2]; k<halo + local_dims[2]; k++){      \
-            Y_BLOCK(XBL, thrid, coords, arg, k, nbz, id);       \
-        }                                                       \
-    }
-
-#define PRINT_CUBE(data)                                                \
-    {                                                                   \
-        for(size_t k=0; k<dimz; k++){                                   \
-            for(size_t j=0; j<dimy; j++){                               \
-                for(size_t i=0; i<dimx; i++){                           \
-                    printf("%f ", data[k*dimx*dimy + j*dimx + i]);      \
-                }                                                       \
-                printf("\n");                                           \
-            }                                                           \
-            printf("\n");                                               \
-        }                                                               \
-    }
-
-
 int main(int argc, char *argv[])
 {    
     int num_ranks = 1, rank;
@@ -166,7 +117,6 @@ int main(int argc, char *argv[])
         int    coords[3];
         void **ptr;
         size_t memsize;
-        int nby, nbz;
 
         /* create a cartesian periodic rank world */
         rank2coord(dims, rank, coords);

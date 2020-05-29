@@ -1,6 +1,5 @@
 #include "packing_common.h"
 #include <iostream>
-#include <omp.h>
 
 const int dims[3] = {4,4,2};
 
@@ -21,13 +20,6 @@ float_type ****sequential_buffers; // num_fields small buffers for each neighbor
 float_type **compact_buffers_cpy;     // a large buffer to store all fields, for each neighbor, including self
 float_type ***sequential_buffers_cpy; // num_fields small buffers for each neighbor, including self
 #pragma omp threadprivate(compact_buffers_cpy, sequential_buffers_cpy)
-
-// inline void __attribute__ ((always_inline)) nblist(const int rank, const int [3],
-//     int *, int k, int j, int id, int local_nbid)
-// {
-//     local_nbid *= 3;
-//     printf("%d %d %d\n", local_nbid, local_nbid+1, local_nbid+2);
-// }
 
 inline void __attribute__ ((always_inline)) x_pack_seq(const int rank, const int [3],
     int *, int k, int nbz, int j, int nby, int id)
@@ -268,88 +260,6 @@ inline void __attribute__ ((always_inline)) x_unpack_compact(const int, const in
 }
 
 
-#define Y_BLOCK(XBL, rank, coords, arg, k, nbz, id)             \
-    {                                                           \
-        int j;                                                  \
-        nby = -1;                                               \
-        for(j=halo; j<2*halo; j++){                             \
-            XBL(rank, coords, arg, k, nbz, j, nby, id);         \
-        }                                                       \
-        nby = 0;                                                \
-        for(j=halo; j<halo + local_dims[1]; j++){               \
-            XBL(rank, coords, arg, k, nbz, j, nby, id);         \
-        }                                                       \
-        nby = 1;                                                \
-        for(j=local_dims[1]; j<halo + local_dims[1]; j++){      \
-            XBL(rank, coords, arg, k, nbz, j, nby, id);         \
-        }                                                       \
-    }
-
-#define Z_BLOCK(XBL, rank, coords, arg, id)                     \
-    {                                                           \
-        int k;                                                  \
-        nbz = -1;                                               \
-        for(k=halo; k<2*halo; k++){                             \
-            Y_BLOCK(XBL, rank, coords, arg, k, nbz, id);        \
-        }                                                       \
-        nbz = 0;                                                \
-        for(k=halo; k<halo + local_dims[2]; k++){               \
-            Y_BLOCK(XBL, rank, coords, arg, k, nbz, id);        \
-        }                                                       \
-        nbz = 1;                                                \
-        for(k=local_dims[2]; k<halo + local_dims[2]; k++){      \
-            Y_BLOCK(XBL, rank, coords, arg, k, nbz, id);        \
-        }                                                       \
-    }
-
-#define Y_BLOCK_UNPACK(XBL, rank, coords, arg, k, nbz, id)              \
-    {                                                                   \
-        int j;                                                          \
-        nby = 1;                                                        \
-        for(j=0; j<halo; j++){                                          \
-            XBL(rank, coords, arg, k, nbz, j, nby, id);                 \
-        }                                                               \
-        nby = 0;                                                        \
-        for(j=halo; j<halo + local_dims[1]; j++){                       \
-            XBL(rank, coords, arg, k, nbz, j, nby, id);                 \
-        }                                                               \
-        nby = -1;                                                       \
-        for(j=local_dims[1]+halo; j<2*halo + local_dims[1]; j++){       \
-            XBL(rank, coords, arg, k, nbz, j, nby, id);                 \
-        }                                                               \
-    }
-
-#define Z_BLOCK_UNPACK(XBL, rank, coords, arg, id)                      \
-    {                                                                   \
-        int k;                                                          \
-        nbz = 1;                                                        \
-        for(k=0; k<halo; k++){                                          \
-            Y_BLOCK_UNPACK(XBL, rank, coords, arg, k, nbz, id);         \
-        }                                                               \
-        nbz = 0;                                                        \
-        for(k=halo; k<halo + local_dims[2]; k++){                       \
-            Y_BLOCK_UNPACK(XBL, rank, coords, arg, k, nbz, id);         \
-        }                                                               \
-        nbz = -1;                                                       \
-        for(k=local_dims[2]+halo; k<2*halo + local_dims[2]; k++){       \
-            Y_BLOCK_UNPACK(XBL, rank, coords, arg, k, nbz, id);         \
-        }                                                               \
-    }
-
-#define PRINT_CUBE(data)                                                \
-    {                                                                   \
-        for(size_t k=0; k<dimz; k++){                                   \
-            for(size_t j=0; j<dimy; j++){                               \
-                for(size_t i=0; i<dimx; i++){                           \
-                    printf("%f ", data[k*dimx*dimy + j*dimx + i]);      \
-                }                                                       \
-                printf("\n");                                           \
-            }                                                           \
-            printf("\n");                                               \
-        }                                                               \
-    }
-
-//TEST(packing, strategies) {
 int main(){
     int num_ranks = 1;
 

@@ -58,40 +58,6 @@ inline void __attribute__ ((always_inline)) x_verify(const int rank, const int c
     }
 }
 
-#define Y_BLOCK(XBL, rank, coords, arg, k, nbz, id)             \
-    {                                                           \
-        int j;                                                  \
-        int nby = -1;						\
-        for(j=halo; j<2*halo; j++){                             \
-            XBL(rank, coords, arg, k, nbz, j, nby, id);         \
-        }                                                       \
-        nby = 0;                                                \
-        for(j=halo; j<halo + local_dims[1]; j++){               \
-            XBL(rank, coords, arg, k, nbz, j, nby, id);         \
-        }                                                       \
-        nby = 1;                                                \
-        for(j=local_dims[1]; j<halo + local_dims[1]; j++){      \
-            XBL(rank, coords, arg, k, nbz, j, nby, id);         \
-        }                                                       \
-    }
-
-#define Z_BLOCK(XBL, rank, coords, arg, id)                     \
-    {                                                           \
-        int k;                                                  \
-        int nbz = -1;						\
-        for(k=halo; k<2*halo; k++){                             \
-            Y_BLOCK(XBL, rank, coords, arg, k, nbz, id);        \
-        }                                                       \
-        nbz = 0;                                                \
-        for(k=halo; k<halo + local_dims[2]; k++){               \
-            Y_BLOCK(XBL, rank, coords, arg, k, nbz, id);        \
-        }                                                       \
-        nbz = 1;                                                \
-        for(k=local_dims[2]; k<halo + local_dims[2]; k++){      \
-            Y_BLOCK(XBL, rank, coords, arg, k, nbz, id);        \
-        }                                                       \
-    }
-
 int main()
 {    
     int num_ranks = 1;

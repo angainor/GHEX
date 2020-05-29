@@ -1,6 +1,5 @@
 #include "packing_common.h"
 #include <iostream>
-#include <omp.h>
 
 const int dims[3] = {4,4,2};
 

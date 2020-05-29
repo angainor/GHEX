@@ -1,66 +1,24 @@
 #include "packing_common.h"
-#include <omp.h>
-#include <stdint.h>
-
-int dims[3] = {4, 4, 2};
-size_t dimx, dimy, dimz;
 
 /* number of threads X number of cubes X data size */
 float_type ***data_cubes;
 
-typedef int_fast64_t size_type;
-typedef unsigned char byte;
+int dims[3] = {4, 4, 2};
+size_type dimx, dimy, dimz;
 
 void __attribute__((noinline))
 put_halo(float_type *__restrict__ dst, const float_type *__restrict__ src, size_type *src_space, size_type *dst_space)
 {
-    size_type ks, kd, js, jd, is, id;
+    size_type ks, kd, js, jd;
 
     for(ks=src_space[0], kd=dst_space[0]; ks<src_space[1]; ks++, kd++){
         for(js=src_space[2], jd=dst_space[2]; js<src_space[3]; js++, jd++){
-	    for(size_type is=src_space[4], id=dst_space[4]; is<src_space[5]; is++, id++){
-	        dst[kd*dimx*dimy + jd*dimx + id] = src[ks*dimx*dimy + js*dimx + is];
-            }
-            // memcpy(dst + kd*dimx*dimy + jd*dimx + dst_space[4], 
-            //     src + ks*dimx*dimy + js*dimx + src_space[4], 
-            //     sizeof(float_type)*(src_space[5]-src_space[4]));
-        }
-    }
-}
-
-byte*  __attribute__((noinline)) get_buffer3(float_type *m_buffer, const size_type* coord, const size_type* inner_offset, const size_type *outer_stride)
-{
-    return reinterpret_cast<byte*>(m_buffer) +
-        (coord[0] + inner_offset[0]) * outer_stride[0] +
-        (coord[1] + inner_offset[1]) * outer_stride[1] +
-        (coord[2] + inner_offset[2]) * outer_stride[2] ;
-}
-
-
-void __attribute__((noinline))
-put_halo2(float_type *__restrict__ dst, float_type *__restrict__ src, size_type *src_space, size_type *dst_space,
-    const size_type* inner_offset, const size_type * outer_stride)
-{
-    size_type ks, kd, js, jd, is, id;
-    byte *dptr, *sptr;
-    size_type coord[3];
-
-    for(ks=src_space[0], kd=dst_space[0]; ks<src_space[1]; ks++, kd++){
-        for(js=src_space[2], jd=dst_space[2]; js<src_space[3]; js++, jd++){
-            {
-                const size_type coord[3]{0,jd,kd};
-                dptr = get_buffer3(dst, coord, inner_offset, outer_stride);
-            }
-            {
-                const size_type coord[3]{0,js,ks};
-                sptr = get_buffer3(src, coord, inner_offset, outer_stride);
-            }
-
-	    // for(size_type is=src_space[4]*sizeof(float_type), id=dst_space[4]*sizeof(float_type);  is<src_space[5]*sizeof(float_type); is++, id++){
-	    //     dptr[id] = sptr[is];
+            // size_type is, id;
+	    // for(is=src_space[4], id=dst_space[4]; is<src_space[5]; is++, id++){
+	    //     dst[kd*dimx*dimy + jd*dimx + id] = src[ks*dimx*dimy + js*dimx + is];
             // }
-            memcpy(dptr+dst_space[4]*sizeof(float_type), 
-                sptr+src_space[4]*sizeof(float_type), 
+            memcpy(dst + kd*dimx*dimy + jd*dimx + dst_space[4], 
+                src + ks*dimx*dimy + js*dimx + src_space[4], 
                 sizeof(float_type)*(src_space[5]-src_space[4]));
         }
     }
@@ -134,100 +92,6 @@ inline void __attribute__ ((always_inline)) x_verify(const int rank, const int c
         }                                                       \
     }
 
-#define FILL_IT_SPACE()                         \
-    it_space[nbid][0] = zlo;                    \
-    it_space[nbid][1] = zhi;                    \
-    it_space[nbid][2] = ylo;                    \
-    it_space[nbid][3] = yhi;                    \
-    it_space[nbid][4] = xlo;                    \
-    it_space[nbid][5] = xhi;                    \
-
-inline void X_RANGE_SRC(size_type **it_space, size_type zlo, size_type zhi, size_type nbz, size_type ylo, size_type yhi, size_type nby)
-{
-    size_type xlo, xhi, nbx, nbid;
-    xlo = halo;
-    xhi = 2*halo;
-    nbx = -1;
-    nbid = id2nbid(nbx, nby, nbz);
-    FILL_IT_SPACE();
-
-    xlo = halo;
-    xhi = halo + local_dims[0];
-    nbx = 0;
-    nbid = id2nbid(nbx, nby, nbz);
-    FILL_IT_SPACE();
-
-    xlo = local_dims[0];
-    xhi = halo + local_dims[0];
-    nbx = 1;
-    nbid = id2nbid(nbx, nby, nbz);
-    FILL_IT_SPACE();
-}
-
-#define Y_RANGE_SRC(it_space, zlo, zhi, nbz)				\
-    {                                                                   \
-        X_RANGE_SRC(it_space, zlo, zhi, nbz, halo, 2*halo, -1);		\
-        X_RANGE_SRC(it_space, zlo, zhi, nbz, halo, halo + local_dims[1], 0); \
-        X_RANGE_SRC(it_space, zlo, zhi, nbz, local_dims[1], halo + local_dims[1], 1); \
-    }
-
-#define Z_RANGE_SRC(it_space)						\
-    {                                                                   \
-        Y_RANGE_SRC(it_space, halo, 2*halo, -1);			\
-        Y_RANGE_SRC(it_space, halo, halo + local_dims[2], 0);		\
-        Y_RANGE_SRC(it_space, local_dims[2], halo + local_dims[2], 1);	\
-    }
-
-inline void X_RANGE_DST(size_type **it_space, size_type zlo, size_type zhi, size_type nbz, size_type ylo, size_type yhi, size_type nby)
-{
-    size_type xlo, xhi, nbx, nbid;
-    xlo = 0;
-    xhi = halo;
-    nbx = -1;
-    nbid = id2nbid(nbx, nby, nbz);
-    FILL_IT_SPACE();
-
-    xlo = halo;
-    xhi = halo + local_dims[0];
-    nbx = 0;
-    nbid = id2nbid(nbx, nby, nbz);
-    FILL_IT_SPACE();
-
-    xlo = halo + local_dims[0];
-    xhi = 2*halo + local_dims[0];
-    nbx = 1;
-    nbid = id2nbid(nbx, nby, nbz);
-    FILL_IT_SPACE();
-}
-
-#define Y_RANGE_DST(it_space, zlo, zhi, nbz)				\
-    {                                                                   \
-        X_RANGE_DST(it_space, zlo, zhi, nbz, 0, halo, -1);		\
-        X_RANGE_DST(it_space, zlo, zhi, nbz, halo, halo + local_dims[1], 0); \
-        X_RANGE_DST(it_space, zlo, zhi, nbz, halo+local_dims[1], 2*halo + local_dims[1], 1); \
-    }
-
-#define Z_RANGE_DST(it_space)						\
-    {                                                                   \
-        Y_RANGE_DST(it_space, 0, halo, -1);				\
-        Y_RANGE_DST(it_space, halo, halo + local_dims[2], 0);		\
-        Y_RANGE_DST(it_space, halo + local_dims[2], 2*halo + local_dims[2], 1); \
-    }
-
-#define PRINT_CUBE(data)                                                \
-    {                                                                   \
-        for(size_t k=0; k<dimz; k++){                                   \
-            for(size_t j=0; j<dimy; j++){                               \
-                for(size_t i=0; i<dimx; i++){                           \
-                    printf("%f ", data[k*dimx*dimy + j*dimx + i]);      \
-                }                                                       \
-                printf("\n");                                           \
-            }                                                           \
-            printf("\n");                                               \
-        }                                                               \
-    }
-
-
 int main()
 {    
     int num_ranks = 1;
@@ -250,7 +114,7 @@ int main()
         int    rank;
         int    coords[3];
         void **ptr;
-        size_t memsize;
+        size_type memsize;
 
         /* create a cartesian periodic rank world */
         rank = omp_get_thread_num();
@@ -300,18 +164,15 @@ int main()
             memset(data_cubes[rank][fi], 0, memsize);
             
             /* init domain data: owner thread id */
-            for(size_t k=halo; k<dimz-halo; k++){
-                for(size_t j=halo; j<dimy-halo; j++){
-                    for(size_t i=halo; i<dimx-halo; i++){
+            for(size_type k=halo; k<dimz-halo; k++){
+                for(size_type j=halo; j<dimy-halo; j++){
+                    for(size_type i=halo; i<dimx-halo; i++){
                         data_cubes[rank][fi][k*dimx*dimy + j*dimx + i] = rank+1;
                     }
                 }
             }
         }
 	
-        size_type inner_offset[3]{0,0,0};
-        size_type outer_stride[3]{1*sizeof(float_type),dimx*sizeof(float_type),dimx*dimy*sizeof(float_type)};
-
 #pragma omp barrier
         /* warmup */
         for(int it=0; it<2; it++){
@@ -320,8 +181,7 @@ int main()
                     if(nbid==13) continue;
 		    float_type *src = data_cubes[rank][fid];
 		    float_type *dst = data_cubes[nb[nbid]][fid];
-                    put_halo2(dst, src, iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid], inner_offset, outer_stride);
-                    // put_halo(dst, src, iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                    put_halo(dst, src, iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
                 }
             }
 	}
@@ -330,40 +190,12 @@ int main()
         tic();
         for(int it=0; it<num_repetitions; it++){
             for(int fid=0; fid<num_fields; fid++){
-                for(int nbid=0; nbid<27; nbid++){
+                for(int nbid=0; nbid<27; nbid++){ 
                     if(nbid==13) continue;
 		    float_type *src = data_cubes[rank][fid];
 		    float_type *dst = data_cubes[nb[nbid]][fid];
-                    put_halo2(dst, src, iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid], inner_offset, outer_stride);
-                    //put_halo(dst, src, iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
+                    put_halo(dst, src, iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
                 }
-                // int nbid;
-                // nbid=3; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=9; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=10; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=20; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=7; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=2; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=15; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=4; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=25; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=6; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=21; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=23; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=8; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=18; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=5; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=14; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=16; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=17; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=12; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=1; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=0; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=22; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=26; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=24; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=11; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
-                // nbid=19; put_halo(data_cubes[nb[nbid]][fid], data_cubes[rank][fid], iteration_spaces_pack[nbid], iteration_spaces_unpack[nbid]);
             }
 #pragma omp barrier
         }
@@ -373,10 +205,6 @@ int main()
             printf("put_halo\n");
             toc();
         }
-
-	// if(rank==0){
-	//     PRINT_CUBE(data_cubes[rank][0]);
-	// }
 	
         /* verify that the data is correct */
         {

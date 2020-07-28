@@ -17,14 +17,10 @@
 #include "./common/test_eq.hpp"
 #include "./buffer_info.hpp"
 #include "./transport_layer/tags.hpp"
-#include "./structured/simple_field_wrapper.hpp"
 #include "./arch_traits.hpp"
 #include <map>
 #include <stdio.h>
 #include <functional>
-
-#include "./common/timer.hpp"
-using timer_type = gridtools::ghex::timer;
 
 namespace gridtools {
 
@@ -98,9 +94,6 @@ namespace gridtools {
         private: // friend class
 
             friend class communication_handle<Communicator,GridType,DomainIdType>;
-        
-            template<typename, typename, typename>
-            friend class bulk_communication_object;
 
         public: // member types
 
@@ -164,7 +157,6 @@ namespace gridtools {
                 std::size_t size;
                 std::vector<field_info_type> field_infos;
                 cuda::stream m_cuda_stream;
-                std::size_t bulk_send_id;
             };
 
             /** @brief Holds maps of buffers for send and recieve operations indexed by a domain_id_pair and a device id
@@ -204,8 +196,6 @@ namespace gridtools {
 
         public: // ctors
 
-            timer_type tpack, tupack, tinit;
-
             communication_object(communicator_type comm)
             : m_valid(false) 
             , m_comm(comm)
@@ -232,88 +222,6 @@ namespace gridtools {
               * @return handle to await communication */
             template<typename... Archs, typename... Fields>
             [[nodiscard]] handle_type exchange(buffer_info_type<Archs,Fields>... buffer_infos)
-            {
-                prepare_exchange(buffer_infos...);
-                handle_type h(m_comm, [this](){this->wait();});
-                post_recvs();
-                pack();
-                return h; 
-            }
-
-            template<typename... Archs, typename... Fields>
-            void pack_unpack(buffer_info_type<Archs,Fields>... buffer_infos) {
-
-                // set up buffers, tags, whatever logic is needed
-                tinit.tic();
-                prepare_exchange(buffer_infos...);
-                // this function posts ready futures only
-                post_recvs();
-                tinit.toc();
-                // packs only (no send)
-                
-                tpack.tic();
-                pack();
-                tpack.toc();
-                // printf("toc pack %e\n", t);
-
-                // unpack
-                tupack.tic();
-                wait();
-                tupack.toc();
-                // printf("toc UNpack %e\n", t);
-            }
-
-        public: // exchange a number of buffer_infos with identical type (same field, device and pattern type)
-
-            /** @brief non-blocking exchange of data, vector interface
-              * @tparam Arch device type
-              * @tparam Field field type
-              * @param first pointer to first buffer_info object
-              * @param length number of buffer_infos
-              * @return handle to await exchange */
-            template<typename Arch, typename Field>
-            [[nodiscard]] handle_type exchange(buffer_info_type<Arch,Field>* first, std::size_t length)
-            {
-                auto h = exchange_impl(first, length);
-                post_recvs();
-                pack();
-                return h;
-            }
-
-        public: // exchange a number of buffer_infos with Field = simple_field_wrapper (optimization for gpu below)
-
-#ifdef __CUDACC__
-            template<typename Arch, typename T, int... Order>
-            [[nodiscard]] std::enable_if_t<std::is_same<Arch,gpu>::value, handle_type>
-            exchange_u(
-                buffer_info_type<Arch,structured::simple_field_wrapper<T,Arch,structured::domain_descriptor<domain_id_type,sizeof...(Order)>,Order...>>* first, 
-                std::size_t length)
-            {
-                using memory_t   = buffer_memory<gpu>;
-                using field_type = std::remove_reference_t<decltype(first->get_field())>;
-                using value_type = typename field_type::value_type;
-                auto h = exchange_impl(first, length);
-                post_recvs();
-                h.m_wait_fct = [this](){this->wait_u<value_type,field_type>();};
-                memory_t& mem = std::get<memory_t>(m_mem);
-                packer<gpu>::template pack_u<value_type,field_type>(mem, m_send_futures, m_comm);
-                return h;
-            }
-#endif
-
-            template<typename Arch, typename T, int... Order>
-            [[nodiscard]] std::enable_if_t<std::is_same<Arch,cpu>::value, handle_type>
-            exchange_u(
-                buffer_info_type<Arch,structured::simple_field_wrapper<T,Arch,structured::domain_descriptor<domain_id_type,sizeof...(Order)>,Order...>>* first, 
-                std::size_t length)
-            {
-                return exchange(first, length);
-            }
-
-        private: // implementation
-
-            template<typename... Archs, typename... Fields>
-            void prepare_exchange(buffer_info_type<Archs,Fields>... buffer_infos)
             {
                 // check that arguments are compatible
                 using test_t = pattern_container<communicator_type,grid_type,domain_id_type>;
@@ -352,47 +260,97 @@ namespace gridtools {
                     allocate<arch_type,value_type>(mem, bi->get_pattern(), field_ptr, my_dom_id, bi->device_id(), tag_offsets[i]);
                     ++i;
                 });
+                handle_type h(m_comm, [this](){this->wait();});
+                post_recvs();
+                pack();
+                return h; 
             }
 
-            template<typename Arch, typename Field>
-            void prepare_exchange_impl(buffer_info_type<Arch,Field>* first, std::size_t length)
+//        public: // exchange a number of buffer_infos with Field = field_descriptor (optimization for gpu below)
+//
+//#ifdef __CUDACC__
+//            template<typename Arch, typename T, int... Order>
+//            [[nodiscard]] std::enable_if_t<std::is_same<Arch,gpu>::value, handle_type>
+//            exchange_u(
+//                buffer_info_type<Arch,structured::regular::field_descriptor<T,Arch,structured::regular::domain_descriptor<domain_id_type,sizeof...(Order)>,Order...>>* first, 
+//                std::size_t length)
+//            {
+//                using memory_t   = buffer_memory<gpu>;
+//                using field_type = std::remove_reference_t<decltype(first->get_field())>;
+//                using value_type = typename field_type::value_type;
+//                auto h = exchange_impl(first, length);
+//                post_recvs();
+//                h.m_wait_fct = [this](){this->wait_u<value_type,field_type>();};
+//                memory_t& mem = std::get<memory_t>(m_mem);
+//                packer<gpu>::template pack_u<value_type,field_type>(mem, m_send_futures, m_comm);
+//                return h;
+//            }
+//#endif
+
+            template<typename... Iterators>
+            [[nodiscard]]
+            handle_type exchange(Iterators... iters)
             {
-                // check that arguments are compatible
-                using test_t = pattern_container<communicator_type,grid_type,domain_id_type>;
-                static_assert(std::is_same<test_t, typename buffer_info_type<Arch,Field>::pattern_container_type>::value,
-                        "patterns are not compatible with this communication object");
+                static_assert(sizeof...(Iterators) % 2 == 0, "need even number of iteratiors: (begin,end) pairs");
+                return exchange(std::make_index_sequence<sizeof...(iters)/2>(), iters...); 
+            }
+
+        private: // implementation
+            template<typename Tuple, typename... Iterators>
+            [[nodiscard]]
+            handle_type exchange(std::pair<Iterators,Iterators>... iter_pairs)
+            {
+                using pattern_container_types =
+                    std::tuple<typename std::remove_reference<decltype(*(iter_pairs.first))>::type::
+                        pattern_container_type...>;
+                static_assert(std::is_same<Tuple,pattern_container_types>::value,
+                    "patterns are incompatible with this communication object" );
+
+                const std::tuple<std::pair<Iterators,Iterators>...> iter_pairs_t{iter_pairs...};
+
                 if (m_valid)
                     throw std::runtime_error("earlier exchange operation was not finished");
                 m_valid = true;
 
                 // build a tag map
+                using test_t = pattern_container<communicator_type,grid_type,domain_id_type>;
                 std::map<const test_t*,int> pat_ptr_map;
                 int max_tag = 0;
-                for (unsigned int k=0; k<length; ++k)
-                {
-                    const test_t* ptr = &((first+k)->get_pattern_container());
-                    auto p_it_bool = pat_ptr_map.insert( std::make_pair(ptr, max_tag) );
-                    if (p_it_bool.second == true)
-                        max_tag += ptr->max_tag()+1;
-                }
-                // loop over buffer_infos/memory and compute required space
-                using memory_t               = buffer_memory<Arch>*;
-                using value_type             = typename buffer_info_type<Arch,Field>::value_type;
-                memory_t mem{&(std::get<buffer_memory<Arch>>(m_mem))};
-                for (std::size_t k=0; k<length; ++k)
-                {
-                    auto field_ptr = &((first+k)->get_field());
-                    auto tag_offset = pat_ptr_map[&((first+k)->get_pattern_container())];
-                    const auto my_dom_id  =(first+k)->get_field().domain_id();
-                    allocate<Arch,value_type>(mem, (first+k)->get_pattern(), field_ptr, my_dom_id, (first+k)->device_id(), tag_offset);
-                }
-            }
+                detail::for_each(iter_pairs_t, [&pat_ptr_map,&max_tag](auto iter_pair) {
+                    for (auto it=iter_pair.first; it!=iter_pair.second; ++it) {
+                        auto ptr = &(it->get_pattern_container());
+                        auto p_it_bool = pat_ptr_map.insert( std::make_pair(ptr, max_tag) );
+                        if (p_it_bool.second == true)
+                            max_tag += ptr->max_tag()+1;
+                    }
+                });
+                detail::for_each(iter_pairs_t, [this,&pat_ptr_map](auto iter_pair) {
+                    using buffer_info_t = typename std::remove_reference<decltype(*iter_pair.first)>::type;
+                    using arch_t = typename buffer_info_t::arch_type;
+                    using value_t = typename buffer_info_t::value_type;
+                    auto mem = &(std::get<buffer_memory<arch_t>>(m_mem));
+                    for (auto it=iter_pair.first; it!=iter_pair.second; ++it) {
+                        auto field_ptr = &(it->get_field());
+                        auto tag_offset = pat_ptr_map[ &(it->get_pattern_container()) ];
+                        const auto my_dom_id = it->get_field().domain_id();
+                        allocate<arch_t,value_t>(mem, it->get_pattern(), field_ptr, my_dom_id,
+                            it->device_id(), tag_offset);
+                    }
+                });
 
-            template<typename Arch, typename Field>
-            [[nodiscard]] handle_type exchange_impl(buffer_info_type<Arch,Field>* first, std::size_t length)
-            {
-                prepare_exchange_impl(first,length);
+                post_recvs();
+                pack();
                 return handle_type(m_comm, [this](){this->wait();});
+            }
+            
+            template<std::size_t... Is, typename... Iterators>
+            [[nodiscard]]
+            handle_type exchange(std::index_sequence<Is...>, Iterators... iters)
+            {
+                const std::tuple<Iterators...> iter_t{iters...};
+                using test_t = std::tuple<pattern_container<communicator_type,grid_type,domain_id_type>>;
+                using test_t_n = std::tuple< typename std::tuple_element<Is*0, test_t>::type... >;
+                return exchange<test_t_n>(std::make_pair(std::get<2*Is>(iter_t), std::get<2*Is+1>(iter_t))...);
             }
 
             void post_recvs()
@@ -405,13 +363,11 @@ namespace gridtools {
                         {
                             if (p1.second.size > 0u)
                             {
-                                using future_t = std::remove_reference_t<decltype(m_comm.recv(p1.second.buffer, p1.second.address, p1.second.tag))>;
                                 p1.second.buffer.resize(p1.second.size);
                                 m.m_recv_futures.emplace_back(
                                     typename std::remove_reference_t<decltype(m)>::future_type{
                                         &p1.second,
-                                        future_t{}.m_handle});
-                                        //m_comm.recv(p1.second.buffer, p1.second.address, p1.second.tag).m_handle});
+                                        m_comm.recv(p1.second.buffer, p1.second.address, p1.second.tag).m_handle});
                             }
                         }
                     }
@@ -530,7 +486,8 @@ namespace gridtools {
             {
                 for (const auto& p_id_c : halos)
                 {
-                    const auto num_elements   = pattern_type::num_elements(p_id_c.second);
+                    const auto num_elements = pattern_type::num_elements(p_id_c.second)*
+                        field_ptr->num_components();
                     if (num_elements < 1) continue;
                     const auto remote_address = p_id_c.first.address;
                     const auto remote_dom_id  = p_id_c.first.id;
@@ -557,8 +514,7 @@ namespace gridtools {
                                 arch_traits<Arch>::make_message(pool, device_id),
                                 0,
                                 std::vector<typename BufferType::field_info_type>(),
-                                cuda::stream(),
-                                0u
+                                cuda::stream()
                             })).first;
                     }
                     else if (it->second.size==0)
@@ -594,4 +550,3 @@ namespace gridtools {
 } // namespace gridtools
 
 #endif /* INCLUDED_GHEX_COMMUNICATION_OBJECT_2_HPP */
-

@@ -59,12 +59,12 @@ int main(int argc, char* argv[])
 {    
     int num_ranks = 1;
 
-    if(argc<3){
+    if(argc!=4){
       fprintf(stderr, "Usage: <bench name> thread_space_dimensions\n");
       exit(1);
     }
 
-    for(int i=0; i!=4; i++){
+    for(int i=0; i<3; i++){
       dims[i] = atoi(argv[i+1]);
       num_ranks *= dims[i];
     }

@@ -3,9 +3,6 @@
 /* number of threads X number of cubes X data size */
 float_type ***data_cubes;
 
-int dims[3] = {4, 4, 2};
-size_type dimx, dimy, dimz;
-
 void __attribute__((noinline))
 put_halo(float_type *__restrict__ dst, const float_type *__restrict__ src, size_type *src_space, size_type *dst_space)
 {
@@ -58,15 +55,20 @@ inline void __attribute__ ((always_inline)) x_verify(const int rank, const int c
     }
 }
 
-int main()
+int main(int argc, char* argv[])
 {    
     int num_ranks = 1;
 
-#pragma omp parallel
-    {
-#pragma omp master
-        num_ranks = omp_get_num_threads();
+    if(argc<3){
+      fprintf(stderr, "Usage: <bench name> thread_space_dimensions\n");
+      exit(1);
     }
+
+    for(int i=0; i!=4; i++){
+      dims[i] = atoi(argv[i+1]);
+      num_ranks *= dims[i];
+    }
+    omp_set_num_threads(num_ranks);
 
     /* make a cartesian thread space */
     printf("cart dims %d %d %d\n", dims[0], dims[1], dims[2]);

@@ -5,9 +5,6 @@ extern "C" {
 #include <xpmem.h>
 }
 
-int dims[3] = {0};
-size_t dimx, dimy, dimz;
-
 /* number of threads X number of cubes X data size */
 float_type ***data_cubes;
 xpmem_segid_t *xpmem_endpoints;
@@ -39,8 +36,8 @@ inline void __attribute__ ((always_inline)) x_copy_seq(const int thrid, const in
         dst[dst_k*dimx*dimy + dst_j*dimx + dst_i + i] = src[k*dimx*dimy + j*dimx + i];
     }
 
-    nb  = coord2rank(dims, coords[0]+0, coords[1]+nby, coords[2]+nbz);
-    if(nb != thrid) {
+    if(nby!=0 || nbz!=0) {
+        nb  = coord2rank(dims, coords[0]+0, coords[1]+nby, coords[2]+nbz);
         dst = data_cubes[nb][id];
 
 #ifdef __INTEL_COMPILER

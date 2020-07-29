@@ -12,6 +12,9 @@
 using float_type = float;
 using size_type = int_fast64_t;
 
+int dims[3] = {0, 0, 0};
+size_t dimx, dimy, dimz;
+
 #define USE_MEMCPY
 #define DIMX 128
 const int local_dims[3] = {DIMX, DIMX, DIMX};

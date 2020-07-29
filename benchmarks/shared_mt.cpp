@@ -1,8 +1,5 @@
 #include "packing_common.h"
 
-int dims[3] = {4, 4, 2};
-size_t dimx, dimy, dimz;
-
 /* number of threads X number of cubes X data size */
 float_type ***data_cubes;
 
@@ -33,8 +30,8 @@ inline void __attribute__ ((always_inline)) x_copy_seq(const int rank, const int
         dst[dst_k*dimx*dimy + dst_j*dimx + dst_i + i] = src[k*dimx*dimy + j*dimx + i];
     }
 
-    nb  = coord2rank(dims, coords[0]+0, coords[1]+nby, coords[2]+nbz);
-    if(nb != rank) {
+    if(nby!=0 || nbz!=0) {
+        nb  = coord2rank(dims, coords[0]+0, coords[1]+nby, coords[2]+nbz);
         dst = data_cubes[nb][id];
 
 #ifdef __INTEL_COMPILER
@@ -91,15 +88,20 @@ inline void __attribute__ ((always_inline)) x_verify(const int rank, const int c
     }
 }
 
-int main()
+int main(int argc, char* argv[])
 {    
     int num_ranks = 1;
 
-#pragma omp parallel
-    {
-#pragma omp master
-        num_ranks = omp_get_num_threads();
+    if(argc!=4){
+      fprintf(stderr, "Usage: <bench name> thread_space_dimensions\n");
+      exit(1);
     }
+
+    for(int i=0; i<3; i++){
+      dims[i] = atoi(argv[i+1]);
+      num_ranks *= dims[i];
+    }
+    omp_set_num_threads(num_ranks);
 
     /* make a cartesian thread space */
     printf("cart dims %d %d %d\n", dims[0], dims[1], dims[2]);

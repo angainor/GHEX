@@ -14,7 +14,7 @@ inline void __attribute__ ((always_inline)) x_copy_seq(const int thrid, const in
     int *, int k, int nbz, int j, int nby, int id)
 {
     int nb, i, dst_k, dst_j, dst_i;
-    float *dst, *src;
+    float_type *dst, *src;
 
     src = data_cubes[thrid][id];
 
@@ -65,7 +65,7 @@ inline void __attribute__ ((always_inline)) x_verify(const int thrid, const int 
     int *errors, int k, int nbz, int j, int nby, int id)
 {
     int nb, i, dst_k, dst_j, dst_i;
-    float *dst;
+    float_type *dst;
 
     dst = data_cubes[thrid][id];
 

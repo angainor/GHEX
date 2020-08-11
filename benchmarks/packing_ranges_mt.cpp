@@ -1,12 +1,9 @@
 #include "packing_common.h"
 #include <iostream>
 
-const int dims[3] = {4,4,2};
-
 // thread-private data accessed from pack/unpack routines
 float_type **data_cubes;
 int    buffer_pos[27] = {0};
-size_t dimx, dimy, dimz;
 int nby, nbz;
 #pragma omp threadprivate(data_cubes)
 #pragma omp threadprivate(buffer_pos)
@@ -41,7 +38,7 @@ inline void __attribute__ ((always_inline)) unpack_seq(size_type *it_space, floa
 
     for(size_type k=it_space[0]; k<it_space[1]; k++){
         for(size_type j=it_space[2]; j<it_space[3]; j++){
-            if(0){
+            if(1){
                 size_type len = it_space[5]-it_space[4];
                 memcpy(dst+k*dimx*dimy + j*dimx + it_space[4], src+buffer_pos, sizeof(float_type)*len);
                 buffer_pos+=len;
@@ -54,14 +51,22 @@ inline void __attribute__ ((always_inline)) unpack_seq(size_type *it_space, floa
     }
 }
 
-int main(){
+int main(int argc, char *argv[]){
     int num_ranks = 1;
 
-#pragma omp parallel
-    {
-#pragma omp master
-        num_ranks = omp_get_num_threads();
+    if(argc!=4){
+      fprintf(stderr, "Usage: <bench name> thread_space_dimensions\n");
+      exit(1);
     }
+
+    for(int i=0; i<3; i++){
+      dims[i] = atoi(argv[i+1]);
+      num_ranks *= dims[i];
+    }
+    omp_set_num_threads(num_ranks);
+
+    /* make a cartesian thread space */
+    printf("cart dims %d %d %d\n", dims[0], dims[1], dims[2]);
 
     // thread-shared for communication
     compact_buffers = (float_type***)malloc(sizeof(float_type***)*num_ranks);

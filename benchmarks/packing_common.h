@@ -13,7 +13,7 @@ using float_type = float;
 using size_type = int_fast64_t;
 
 int dims[3] = {0, 0, 0};
-size_t dimx, dimy, dimz;
+size_type dimx, dimy, dimz;
 
 #define USE_MEMCPY
 #define DIMX 128

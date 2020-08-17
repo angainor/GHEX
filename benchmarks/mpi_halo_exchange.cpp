@@ -70,7 +70,6 @@ int main(int argc, char *argv[]){
     size_type dimx = (dim + 2*halo);
     size_type dimy = (dim + 2*halo);
     size_type dimz = (dim + 2*halo);
-    size_type k, j, i;
 
     local_dims[0] = dimx;
     local_dims[1] = dimy;
@@ -383,7 +382,7 @@ void verify_cube(int rank_dims[3], int coord[3], float_type *f, int local_dims[3
 		// expected value
 		nb = coord2rank(rank_dims, coord_tmp)+1;
 		if(f[k*local_dims[0]*local_dims[1] + j*local_dims[0] + i] != nb)
-		    fprintf(stderr, "wrong halo data (%d %d %d) %d != %d\n",
+		    fprintf(stderr, "wrong halo data (%ld %ld %ld) %d != %d\n",
 			    i, j, k, (int)nb, (int)f[k*local_dims[0]*local_dims[1] + j*local_dims[0] + i]);
 	    }
 	}

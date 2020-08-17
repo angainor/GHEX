@@ -158,16 +158,17 @@ void comm_x_pack(float_type *f, int local_dims[3], int halo, int RUP, int RDN) {
     int position = 0;
     MPI_Request requests[4];
 
+    MPI_Irecv(rbuff_r, memsize, MPI_PACKED, RUP, 1, MPI_COMM_WORLD, &requests[0]);
+    MPI_Irecv(rbuff_l, memsize, MPI_PACKED, RDN, 1, MPI_COMM_WORLD, &requests[1]);
+
     position = 0;
     MPI_Pack(f+local_dims[0]-2*halo, 1, t_xhalo,
 	     sbuff_r, memsize, &position, MPI_COMM_WORLD);
+    MPI_Isend(sbuff_r, memsize, MPI_PACKED, RUP, 1, MPI_COMM_WORLD, &requests[2]);
+
     position = 0;
     MPI_Pack(f+halo, 1, t_xhalo,
 	     sbuff_l, memsize, &position, MPI_COMM_WORLD);
-
-    MPI_Irecv(rbuff_r, memsize, MPI_PACKED, RUP, 1, MPI_COMM_WORLD, &requests[0]);
-    MPI_Irecv(rbuff_l, memsize, MPI_PACKED, RDN, 1, MPI_COMM_WORLD, &requests[1]);
-    MPI_Isend(sbuff_r, memsize, MPI_PACKED, RUP, 1, MPI_COMM_WORLD, &requests[2]);
     MPI_Isend(sbuff_l, memsize, MPI_PACKED, RDN, 1, MPI_COMM_WORLD, &requests[3]);
 
     MPI_Waitall(4, requests, MPI_STATUSES_IGNORE);
@@ -185,16 +186,17 @@ void comm_y_pack(float_type *f, int local_dims[3], int halo, int RUP, int RDN) {
     int position = 0;
     MPI_Request requests[4];
 
+    MPI_Irecv(rbuff_r, memsize, MPI_PACKED, RUP, 2, MPI_COMM_WORLD, &requests[0]);
+    MPI_Irecv(rbuff_l, memsize, MPI_PACKED, RDN, 2, MPI_COMM_WORLD, &requests[1]);
+
     position = 0;
     MPI_Pack(f+local_dims[0]*(local_dims[1]-2*halo), 1, t_yhalo,
 	     sbuff_r, memsize, &position, MPI_COMM_WORLD);
+    MPI_Isend(sbuff_r, memsize, MPI_PACKED, RUP, 2, MPI_COMM_WORLD, &requests[2]);
+
     position = 0;
     MPI_Pack(f+local_dims[0]*halo, 1, t_yhalo,
 	     sbuff_l, memsize, &position, MPI_COMM_WORLD);
-
-    MPI_Irecv(rbuff_r, memsize, MPI_PACKED, RUP, 2, MPI_COMM_WORLD, &requests[0]);
-    MPI_Irecv(rbuff_l, memsize, MPI_PACKED, RDN, 2, MPI_COMM_WORLD, &requests[1]);
-    MPI_Isend(sbuff_r, memsize, MPI_PACKED, RUP, 2, MPI_COMM_WORLD, &requests[2]);
     MPI_Isend(sbuff_l, memsize, MPI_PACKED, RDN, 2, MPI_COMM_WORLD, &requests[3]);
 
     MPI_Waitall(4, requests, MPI_STATUSES_IGNORE);

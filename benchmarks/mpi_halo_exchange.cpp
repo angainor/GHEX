@@ -19,6 +19,9 @@ void exchange_pack_init(int local_dims[3], int halo);
 void exchange_pack(float_type *f, int local_dims[3], int halo,
 		   int R_XUP, int R_XDN, int R_YUP, int R_YDN, int R_ZUP, int R_ZDN);
 
+void init_cube(float_type *f, size_type dimx, size_type dimy, size_type dimz, int halo, int val);
+void verify_cube(int rank_dims[3], int coord[3], float_type *f, int local_dims[3], int halo);
+
 MPI_Datatype t_xhalo, t_yhalo, t_zhalo;
 int rank, size;
 float_type *sbuff_l, *sbuff_r, *rbuff_l, *rbuff_r;
@@ -33,13 +36,13 @@ int main(int argc, char *argv[]){
     int num_repetitions = 0;
     int halo = 0;
     int nfields = 8;
-    
+
     int R_XUP, R_XDN, R_YUP, R_YDN, R_ZUP, R_ZDN;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
-    
+
     if(argc!=7){
 	fprintf(stderr, "Usage: <bench name> dim num_repetitions halo rank_space_dimensions (%d)\n", argc);
 	exit(1);
@@ -47,8 +50,8 @@ int main(int argc, char *argv[]){
 
     dim = atoi(argv[1]);
     num_repetitions = atoi(argv[2]);
-    halo = atoi(argv[3]);   
-    
+    halo = atoi(argv[3]);
+
     for(int i=4; i<7; i++){
 	rank_dims[i-4] = atoi(argv[i]);
 	num_ranks *= rank_dims[i-4];
@@ -58,10 +61,10 @@ int main(int argc, char *argv[]){
 	fprintf(stderr, "number of ranks does not match the rank space dimension\n");
 	exit(1);
     }
-    
+
     /* make a cartesian thread space */
     if(0 ==  rank) printf("cart rank_dims %d %d %d\n", rank_dims[0], rank_dims[1], rank_dims[2]);
-   
+
     float_type **fields;
     size_type memsize;
     size_type dimx = (dim + 2*halo);
@@ -72,7 +75,7 @@ int main(int argc, char *argv[]){
     local_dims[0] = dimx;
     local_dims[1] = dimy;
     local_dims[2] = dimz;
-    
+
     memsize = sizeof(float_type)*dimx*dimy*dimz;
 
     fields = (float_type**)malloc(sizeof(float_type*)*nfields);
@@ -81,13 +84,6 @@ int main(int argc, char *argv[]){
 	int retval = posix_memalign(ptr, 4096, memsize);
 	(void)retval;
 	memset(fields[fi], 0, memsize);
-	for(k=halo; k<dimz-halo; k++){
-	    for(j=halo; j<dimy-halo; j++){
-		for(i=halo; i<dimx-halo; i++){
-		    fields[fi][k*dimx*dimy + j*dimx + i] = rank+1;
-		}
-	    }
-	}
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
@@ -95,26 +91,30 @@ int main(int argc, char *argv[]){
     /* find coords in cartesian rank space */
     rank2coord(rank, rank_dims, coord);
     // printf("%d == %d : %d %d %d\n", rank, coord2rank(rank_dims, coord), coord[0], coord[1], coord[2]);
-    
+
     /* find neighbor ranks */
     R_XUP = get_nbor(rank_dims, coord, +1, 1);
     R_XDN = get_nbor(rank_dims, coord, -1, 1);
     R_YUP = get_nbor(rank_dims, coord, +1, 2);
     R_YDN = get_nbor(rank_dims, coord, -1, 2);
     R_ZUP = get_nbor(rank_dims, coord, +1, 3);
-    R_ZDN = get_nbor(rank_dims, coord, -1, 3);    
+    R_ZDN = get_nbor(rank_dims, coord, -1, 3);
     // printf("rank %d: %d %d %d %d %d %d\n", rank, R_XUP, R_XDN, R_YUP, R_YDN, R_ZUP, R_ZDN);
 
     /* sendrecv implementation */
+    for(int fi=0; fi<nfields; fi++){
+	init_cube(fields[fi], dimx, dimy, dimz, halo, rank+1);
+    }
     exchange_sendrecv_init(local_dims, halo);
     for(int fid=0; fid<num_fields; fid++){
-	exchange_sendrecv(fields[fid], local_dims, halo, R_XUP, R_XDN, R_YUP, R_YDN, R_ZUP, R_ZDN);	
+	exchange_sendrecv(fields[fid], local_dims, halo, R_XUP, R_XDN, R_YUP, R_YDN, R_ZUP, R_ZDN);
     }
-
+    verify_cube(rank_dims, coord, fields[0], local_dims, halo);
+    
     tic();
     for(int it=0; it<num_repetitions; it++){
 	for(int fid=0; fid<num_fields; fid++){
-	    exchange_sendrecv(fields[fid], local_dims, halo, R_XUP, R_XDN, R_YUP, R_YDN, R_ZUP, R_ZDN);	
+	    exchange_sendrecv(fields[fid], local_dims, halo, R_XUP, R_XDN, R_YUP, R_YDN, R_ZUP, R_ZDN);
 	}
     }
     bytes = local_dims[0]*local_dims[1]*halo*6;
@@ -122,13 +122,17 @@ int main(int argc, char *argv[]){
     if(rank==0) {
 	printf("exchange_sendrecv\n");
 	toc();
-    }   
+    }
 
     /* pack, isend/irecv, unpack */
+    for(int fi=0; fi<nfields; fi++){
+	init_cube(fields[fi], dimx, dimy, dimz, halo, rank+1);
+    }
     exchange_pack_init(local_dims, halo);
     for(int fid=0; fid<num_fields; fid++){
 	exchange_pack(fields[fid], local_dims, halo, R_XUP, R_XDN, R_YUP, R_YDN, R_ZUP, R_ZDN);
     }
+    verify_cube(rank_dims, coord, fields[0], local_dims, halo);
 
     tic();
     for(int it=0; it<num_repetitions; it++){
@@ -141,10 +145,10 @@ int main(int argc, char *argv[]){
     if(rank==0) {
 	printf("exchange_pack\n");
 	toc();
-    }   
-    
-    // if(rank==0) PRINT_CUBE(fields[0]);   
-    
+    }
+
+    // if(rank==0) PRINT_CUBE(fields[0]);
+
     MPI_Finalize();
 }
 
@@ -212,7 +216,7 @@ void comm_z_pack(float_type *f, int local_dims[3], int halo, int RUP, int RDN) {
     MPI_Irecv(f, memsize, MPI_PACKED, RDN, 3, MPI_COMM_WORLD, &requests[1]);
     MPI_Isend(f+local_dims[0]*local_dims[1]*(local_dims[2]-2*halo), memsize, MPI_PACKED, RUP, 3, MPI_COMM_WORLD, &requests[2]);
     MPI_Isend(f+local_dims[0]*local_dims[1]*halo, memsize, MPI_PACKED, RDN, 3, MPI_COMM_WORLD, &requests[3]);
-    
+
     MPI_Waitall(4, requests, MPI_STATUSES_IGNORE);
 }
 
@@ -224,7 +228,7 @@ void exchange_pack_init(int local_dims[3], int halo) {
 
     /* need the types */
     exchange_sendrecv_init(local_dims, halo);
-    
+
     ptr = (void**)&sbuff_l;
     retval = posix_memalign(ptr, 4096, memsize);
     memset(sbuff_l, 0, memsize);
@@ -317,4 +321,71 @@ int get_nbor(int rank_dims[3], int coord[3], int shift, int dim){
     nbor = coord2rank(rank_dims, coord);
     coord[dim-1] = coord_old;
     return nbor;
+}
+
+void init_cube(float_type *f, size_type dimx, size_type dimy, size_type dimz, int halo, int val) {
+    size_type memsize = sizeof(float_type)*dimx*dimy*dimz;
+    size_type k, j, i;
+
+    memset(f, 0, memsize);
+    for(k=halo; k<dimz-halo; k++){
+	for(j=halo; j<dimy-halo; j++){
+	    for(i=halo; i<dimx-halo; i++){
+		f[k*dimx*dimy + j*dimx + i] = val;
+	    }
+	}
+    }
+}
+
+void verify_cube(int rank_dims[3], int coord[3], float_type *f, int local_dims[3], int halo)
+{
+    size_type k, j, i;
+    int nb;
+    int shiftx, shifty, shiftz;
+    int coord_tmp[3];
+    int rank;
+    rank = coord2rank(rank_dims, coord);
+
+    for(k=0; k<local_dims[2]; k++){
+
+	if(k<halo) shiftz = -1;
+	else if(k>=local_dims[2]-halo) shiftz = +1;
+	else shiftz = 0;
+
+	coord_tmp[2] = coord[2] + shiftz;
+	if (coord_tmp[2] == rank_dims[2]) coord_tmp[2] = 0;
+	if (coord_tmp[2] < 0) coord_tmp[2] = rank_dims[2]-1;
+	
+	for(j=0; j<local_dims[1]; j++){
+
+	    if(j<halo) shifty = -1;
+	    else if(j>=local_dims[1]-halo) shifty = +1;
+	    else shifty = 0;
+
+	    coord_tmp[1] = coord[1] + shifty;
+	    if (coord_tmp[1] == rank_dims[1]) coord_tmp[1] = 0;
+	    if (coord_tmp[1] < 0) coord_tmp[1] = rank_dims[1]-1;
+
+	    for(i=0; i<local_dims[0]; i++){
+
+		if(i<halo) shiftx = -1;
+		else if(i>=local_dims[0]-halo) shiftx = +1;
+		else shiftx = 0;
+
+		coord_tmp[0] = coord[0] + shiftx;
+		if (coord_tmp[0] == rank_dims[0]) coord_tmp[0] = 0;
+		if (coord_tmp[0] < 0) coord_tmp[0] = rank_dims[0]-1;
+
+		if(rank!=1) continue;
+
+		if(shiftx==0 && shifty==0 && shiftz==0) continue;
+		
+		// expected value
+		nb = coord2rank(rank_dims, coord_tmp)+1;
+		if(f[k*local_dims[0]*local_dims[1] + j*local_dims[0] + i] != nb)
+		    fprintf(stderr, "wrong halo data (%d %d %d) %d != %d\n",
+			    i, j, k, (int)nb, (int)f[k*local_dims[0]*local_dims[1] + j*local_dims[0] + i]);
+	    }
+	}
+    }
 }

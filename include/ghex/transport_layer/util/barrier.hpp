@@ -109,7 +109,6 @@ namespace gridtools {
                 void in_node(TLCommunicator& tlcomm) const
                 {
                     in_node1(tlcomm);
-		    usleep(1000);
                     in_node2(tlcomm);
                  }
 
@@ -120,11 +119,11 @@ namespace gridtools {
                 {
                     size_t expected = 0; //b_count;
 		    while(b_count2 != m_threads) {
-			sched_yield();
+			// sched_yield();
 			tlcomm.progress();
 		    }
                     while (!b_count.compare_exchange_weak(expected, expected+1, std::memory_order_relaxed)){
-			sched_yield();
+			// sched_yield();
 			tlcomm.progress();
 			// expected = b_count;
 		    }
@@ -144,11 +143,11 @@ namespace gridtools {
                 {
                     size_t ex = m_threads; //b_count2;
 		    while(b_count != 0) {
-			sched_yield();
+			// sched_yield();
 			tlcomm.progress();
 		    }
                     while(!b_count2.compare_exchange_weak(ex, ex-1, std::memory_order_relaxed)){
-			sched_yield();
+			// sched_yield();
 			tlcomm.progress();
 			// ex = b_count2;
 		    }

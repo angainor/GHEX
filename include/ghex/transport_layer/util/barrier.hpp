@@ -15,6 +15,7 @@
 #include <mutex>
 #include <cassert>
 #include <mpi.h>
+#include <unistd.h>
 
 namespace gridtools {
     namespace ghex {
@@ -70,9 +71,9 @@ namespace gridtools {
                 template <typename TLCommunicator>
                 void operator()(TLCommunicator& tlcomm) const
                 {
-                    if (in_node1())
+                    if (in_node1(tlcomm))
                         rank_barrier(tlcomm);
-                    in_node2();
+                    in_node2(tlcomm);
                 }
 
                 /**
@@ -88,12 +89,14 @@ namespace gridtools {
                 {
                     MPI_Request req = MPI_REQUEST_NULL;
                     int flag;
+		    // fprintf(stderr, "%d BARRIER enter\n", tlcomm.rank());
                     MPI_Ibarrier(tlcomm.context().mpi_comm(), &req);
                     while(true) {
                         tlcomm.progress();
                         MPI_Test(&req, &flag, MPI_STATUS_IGNORE);
                         if(flag) break;
                     }
+		    // fprintf(stderr, "%d BARRIER exit\n", tlcomm.rank());
                 }
 
                 /**
@@ -102,36 +105,60 @@ namespace gridtools {
                  *
                  * @param tlcomm The communicator object associated with the thread.
                  */
-                //template <typename TLCommunicator>
-                void in_node(/*TLCommunicator& tlcomm*/) const
+                template <typename TLCommunicator>
+                void in_node(TLCommunicator& tlcomm) const
                 {
-                    in_node1();
-                    in_node2();
+                    in_node1(tlcomm);
+		    usleep(1000);
+                    in_node2(tlcomm);
                  }
 
             private:
 
-                bool in_node1() const
+                template <typename TLCommunicator>
+                bool in_node1(TLCommunicator& tlcomm) const
                 {
-                    size_t expected = b_count;
-                    while (!b_count.compare_exchange_weak(expected, expected+1, std::memory_order_relaxed))
-                        expected = b_count;
+                    size_t expected = 0; //b_count;
+		    while(b_count2 != m_threads) {
+			sched_yield();
+			tlcomm.progress();
+		    }
+                    while (!b_count.compare_exchange_weak(expected, expected+1, std::memory_order_relaxed)){
+			sched_yield();
+			tlcomm.progress();
+			// expected = b_count;
+		    }
+
                     if (expected == m_threads-1)
                         {
                             b_count.store(0);
+			    // if(0 == tlcomm.rank()) fprintf(stderr, "EXPECTED %d\n", expected);
                             return true;
                         }
+		    // if(0 == tlcomm.rank()) fprintf(stderr, "expected %d\n", expected);
                     return false;
                 }
 
-                void in_node2() const
+                template <typename TLCommunicator>
+                void in_node2(TLCommunicator& tlcomm) const
                 {
-                    size_t ex = b_count2;
-                    while(!b_count2.compare_exchange_weak(ex, ex-1, std::memory_order_relaxed))
-                        ex = b_count2;
+                    size_t ex = m_threads; //b_count2;
+		    while(b_count != 0) {
+			sched_yield();
+			tlcomm.progress();
+		    }
+                    while(!b_count2.compare_exchange_weak(ex, ex-1, std::memory_order_relaxed)){
+			sched_yield();
+			tlcomm.progress();
+			// ex = b_count2;
+		    }
+		    
                     if (ex == 1) {
+			// if(0 == tlcomm.rank()) fprintf(stderr, "EX %d\n", ex);
                         b_count2.store(m_threads);
+			return;
                     }
+		    // if(0 == tlcomm.rank()) fprintf(stderr, "ex %d\n", ex);
                 }
 
             };

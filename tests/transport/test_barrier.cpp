@@ -25,26 +25,26 @@ using transport = gridtools::ghex::tl::mpi_tag;
 #endif
 
 
-TEST(transport, rank_barrier) {
-    auto context_ptr = gridtools::ghex::tl::context_factory<transport>::create(MPI_COMM_WORLD);
-    auto& context = *context_ptr;
+// TEST(transport, rank_barrier) {
+//     auto context_ptr = gridtools::ghex::tl::context_factory<transport>::create(MPI_COMM_WORLD);
+//     auto& context = *context_ptr;
 
-    gridtools::ghex::tl::barrier_t barrier;
+//     gridtools::ghex::tl::barrier_t barrier;
 
-    auto comm = context.get_communicator();
-    int rank = context.rank();
-    gridtools::ghex::timer timer;
+//     auto comm = context.get_communicator();
+//     int rank = context.rank();
+//     gridtools::ghex::timer timer;
 
-    timer.tic();
-    for(int i=0; i<100; i++)  {
-        barrier.rank_barrier(comm);
-    }
-    const auto t = timer.stoc();
-    if(rank==0)
-    {
-        std::cout << "time:       " << t/1000000 << "s\n";
-    }
-}
+//     timer.tic();
+//     for(int i=0; i<100; i++)  {
+//         barrier.rank_barrier(comm);
+//     }
+//     const auto t = timer.stoc();
+//     if(rank==0)
+//     {
+//         std::cout << "time:       " << t/1000000 << "s\n";
+//     }
+// }
 
 TEST(transport, in_barrier) {
     auto context_ptr = gridtools::ghex::tl::context_factory<transport>::create(MPI_COMM_WORLD);
@@ -62,8 +62,7 @@ TEST(transport, in_barrier) {
 
             timer.tic();
             for(int i=0; i<100; i++)  {
-                comm.progress();
-                barrier.in_node();
+                barrier.in_node(comm);
             }
             const auto t = timer.stoc();
             if(rank==0)

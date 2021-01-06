@@ -222,6 +222,8 @@ bool run(Context& context, const Pattern& pattern, const Domains& domains, const
         raw_field.clone_to_device();
 #endif
 
+    comm.barrier();
+
     // bulk exchange (rma)
     // ===================
 #ifdef __CUDACC__
@@ -234,7 +236,9 @@ bool run(Context& context, const Pattern& pattern, const Domains& domains, const
     auto bco = bulk_communication_object<structured::rma_range_generator, Pattern, decltype(field)>(co);
     bco.add_field(pattern(field));
 #endif
-    bco.exchange().wait();
+    //bco.exchange().wait();
+    generic_bulk_communication_object gbco(std::move(bco));
+    gbco.exchange().wait();
 
     // check field
 #ifdef __CUDACC__

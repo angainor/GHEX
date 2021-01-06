@@ -20,8 +20,7 @@
 namespace gridtools {
     namespace ghex {
         namespace tl {
-
-            namespace ucx {
+            namespace ucx {    
 
 #define GHEX_TAG_BITS                       32
 #define GHEX_RANK_BITS                      32

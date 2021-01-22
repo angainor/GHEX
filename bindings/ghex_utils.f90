@@ -440,6 +440,9 @@ contains
     
     ! create the new communicator with remapped ranks
     call MPI_Comm_split(comm, 0, newrank, newcomm, ierr)
+
+    deallocate(cartXYZ)
+    deallocate(dims)
   end subroutine ghex_cart_remap_ranks
   
 

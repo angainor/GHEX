@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.14.5)
 
-project(GHEX VERSION 0.1 LANGUAGES CXX)
+project(GHEX VERSION 0.1 LANGUAGES CXX Fortran)
 if(USE_GPU)
     set(CMAKE_CUDA_FLAGS "" CACHE STRING "")
     string(APPEND CMAKE_CUDA_FLAGS " --cudart shared --expt-relaxed-constexpr")
@@ -16,7 +16,6 @@ set(USE_HYBRID_TESTS "ON" CACHE BOOL "run gpu+cpu tests")
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wpedantic -Wno-unknown-pragmas")
 
 set(default_build_type "Debug")
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -24,7 +23,10 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE "${default_build_type}" CACHE STRING "Choose the type of build." FORCE)
     # Set the possible values of build type for cmake-gui
     set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
+    set_property(CACHE CMAKE_CXX_FLAGS PROPERTY VALUE "-Wall -Wextra -Wpedantic -Wno-unknown-pragmas")
 endif()
+
+list(APPEND GHEX_FORTRAN_FLAGS "-cpp" "-ffree-line-length-none" "-fcoarray=single")
 
 set(GHEX_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 list(APPEND CMAKE_MODULE_PATH "${GHEX_MODULE_PATH}")

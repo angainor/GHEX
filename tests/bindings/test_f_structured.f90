@@ -8,17 +8,12 @@ PROGRAM test_halo_exchange
   character(len=512) :: arg
   real    :: tic, toc
   integer :: ierr, mpi_err, mpi_threading
-  integer :: nthreads = 1, rank, size, world_rank
+  integer :: nthreads = 1, world_size, world_rank, rank
   integer :: tmp, i, it
   integer :: gfirst(3), glast(3)       ! global index space
   integer :: first(3), last(3)
 
   ! hierarchical decomposition:
-  ! 1. L3 cache block (lowest level, actual ranks)
-  ! 2. numa blocks (composition of L3 blocks)
-  ! 3. socket blocks (composition of numa blocks)
-  ! 4. node blocks (...)
-  ! 5. global grid composed of node blocks  
   integer :: domain(5) = 0
   integer :: topology(3,5) = 1
   integer :: level_rank(5) = -1
@@ -64,17 +59,12 @@ PROGRAM test_halo_exchange
   type(ghex_struct_domain)               :: domain_desc  ! domain descriptor
   type(ghex_struct_communication_object) :: co           ! communication object
   type(ghex_struct_exchange_descriptor)  :: ed           ! exchange descriptor
-
-  ! one field per domain, multiple domains
-  type(ghex_struct_domain),               dimension(:) :: domain_descs(nfields_max)
-  type(ghex_struct_communication_object), dimension(:) :: cos(nfields_max)
-  type(ghex_struct_exchange_descriptor),  dimension(:) :: eds(nfields_max)
-  type(ghex_struct_exchange_handle)      :: eh
+  type(ghex_struct_exchange_handle)      :: eh           ! exchange handle
 
   ! init mpi
   call mpi_init_thread (MPI_THREAD_SINGLE, mpi_threading, mpi_err)
   call mpi_comm_rank(mpi_comm_world, world_rank, mpi_err)
-  call mpi_comm_size(mpi_comm_world, size, mpi_err)
+  call mpi_comm_size(mpi_comm_world, world_size, mpi_err)
 
   if (command_argument_count() < 4) then
      if (world_rank==0) then
@@ -177,8 +167,8 @@ PROGRAM test_halo_exchange
      
      ! check if correct number of ranks
      tmp = product(topology(:,1))*product(topology(:,2))*product(topology(:,3))*product(topology(:,4))*product(topology(:,5))
-     if (tmp /= size) then
-        write (*,"(a, i4, a, i4, a)") "Number of ranks (", size, ") doesn't match the domain decomposition (", tmp, ")"
+     if (tmp /= world_size) then
+        write (*,"(a, i4, a, i4, a)") "Number of ranks (", world_size, ") doesn't match the domain decomposition (", tmp, ")"
         call exit(1)
      end if
   end if
@@ -235,11 +225,8 @@ PROGRAM test_halo_exchange
      if (world_rank==0) then
         print *, "Using standard MPI cartesian communicator"
      end if
-     call mpi_dims_create(size, 3, gdim, mpi_err)
+     call mpi_dims_create(world_size, 3, gdim, mpi_err)
      call mpi_cart_create(mpi_comm_world, 3, gdim, lperiodic, .true., C_CART, ierr)
-
-     ! print rank topology
-     ! call ghex_cart_print_rank_topology(C_CART, domain, topology, cart_order)
      block
        integer(4) :: domain(2) = 0, topology(3,2) = 1
        domain(1) = MPI_COMM_TYPE_SHARED
@@ -270,7 +257,7 @@ PROGRAM test_halo_exchange
      print *, "domain size: ", ldim
   end if
 
-  if (size /= product(gdim)) then
+  if (world_size /= product(gdim)) then
     print *, "Usage: this test must be executed with ", product(gdim), " mpi ranks"
     call exit(1)
   end if
@@ -286,13 +273,6 @@ PROGRAM test_halo_exchange
   first = (rank_coord) * ldim + 1
   last  = first + ldim - 1
   call ghex_domain_init(domain_desc, rank, first, last, gfirst, glast)
-
-  ! make individual copies for sequenced comm
-  i = 1
-  do while (i <= nfields)
-    call ghex_domain_init(domain_descs(i), rank, first, last, gfirst, glast)
-    i = i+1
-  end do
 
   ! define local index ranges
   xs  = first(1)
@@ -324,138 +304,85 @@ PROGRAM test_halo_exchange
     i = i+1
   end do
 
-  if (.true.) then
-     ! ---- COMPACT tests ----
-     ! initialize the field datastructure
-     i = 1
-     do while (i <= nfields)
-        call ghex_field_init(field_desc, data_ptr(i)%ptr, halo, periodic=periodic)
-        call ghex_domain_add_field(domain_desc, field_desc)
-        call ghex_free(field_desc)
-        i = i+1
-     end do
+  ! ---- GHEX tests ----
+  ! initialize the field datastructure
+  i = 1
+  do while (i <= nfields)
+     call ghex_field_init(field_desc, data_ptr(i)%ptr, halo, periodic=periodic)
+     call ghex_domain_add_field(domain_desc, field_desc)
+     call ghex_free(field_desc)
+     i = i+1
+  end do
 
-     ! compute the halo information for all domains and fields
-     ed = ghex_exchange_desc_new(domain_desc)
+  ! compute the halo information for all domains and fields
+  ed = ghex_exchange_desc_new(domain_desc)
 
-     ! warmup
-     ! exchange halos
-     it = 0
-     do while (it < 10)
-        eh = ghex_exchange(co, ed)
-        call ghex_wait(eh)
-        call ghex_free(eh)
-        it = it+1;
-     end do
+  ! initialize data cubes
+  i = 1
+  do while (i <= nfields)
+     data_ptr(i)%ptr(:,:,:) = -1
+     data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank+i
+     i = i+1
+  end do
 
-     it = 0
-     call cpu_time(tic)
-     do while (it < niters)
-        eh = ghex_exchange(co, ed)
-        call ghex_wait(eh)
-        call ghex_free(eh)
-        it = it+1
-     end do
-     call cpu_time(toc)
-     if (rank == 0) then
-        print *, rank, " exchange compact:      ", (toc-tic)
-     end if
+  ! warmup
+  it = 0
+  do while (it < 10)
+     eh = ghex_exchange(co, ed)
+     call ghex_wait(eh)
+     call ghex_free(eh)
+     it = it+1;
+  end do
+  call test_exchange(data_ptr, rank_coord)
+
+  ! time loop
+  it = 0
+  call cpu_time(tic)
+  do while (it < niters)
+     eh = ghex_exchange(co, ed)
+     call ghex_wait(eh)
+     call ghex_free(eh)
+     it = it+1
+  end do
+  call cpu_time(toc)
+  if (rank == 0) then
+     print *, rank, " exchange (GHEX):      ", (toc-tic)
   end if
+  
 
-  if (.false.) then
-    ! ---- SEQUENCE tests ----
-    ! initialize the field datastructure
-    ! compute the halo information for all domains and fields
-    i = 1
-    do while (i <= nfields)
-      call ghex_field_init(field_desc, data_ptr(i)%ptr, halo, periodic=periodic)
-      call ghex_domain_add_field(domain_descs(i), field_desc)
-      call ghex_free(field_desc)
-      eds(i) = ghex_exchange_desc_new(domain_descs(i))
-      i = i+1
-    end do
-
-    ! create communication objects
-    i = 1
-    do while (i <= nfields)
-      call ghex_co_init(cos(i), comm)
-      i = i+1
-    end do
-
-    ! exchange halos
-    i = 1
-    do while (i <= nfields)
-      eh = ghex_exchange(cos(i), eds(i)); call ghex_wait(eh)
-      i = i+1
-    end do
-
-    it = 0
-    do while (it < niters)
-      i = 1
-      call cpu_time(tic)
-      do while (i <= nfields)
-        eh = ghex_exchange(cos(i), eds(i)); call ghex_wait(eh)
-        i = i+1
-      end do
-      call cpu_time(toc)
-      if (rank == 0) then
-        print *, rank, " exchange sequenced (multiple COs):      ", (toc-tic);
-      end if
-      it = it+1
-    end do
-
-    ! ---- SEQUENCE tests, single CO ----
-    ! exchange halos - SEQUENCE
-    i = 1
-    do while (i <= nfields)
-      eh = ghex_exchange(co, eds(i)); call ghex_wait(eh)
-      i = i+1
-    end do
-
-    it = 0
-    do while (it < niters)
-      i = 1
-      call cpu_time(tic)
-      do while (i <= nfields)
-        eh = ghex_exchange(co, eds(i)); call ghex_wait(eh)
-        i = i+1
-      end do
-      call cpu_time(toc)
-      if (rank == 0) then
-        print *, rank, " exchange sequenced (single CO):      ", (toc-tic);
-      end if
-      it = it+1
-    end do
-  end if
-
-  ! cleanup
+  ! cleanup GHEX
   call ghex_free(domain_desc)
   call ghex_free(co)
   call ghex_free(ed)
-  i = 1
-  do while (i <= nfields)
-    call ghex_free(domain_descs(i))
-    call ghex_free(cos(i))
-    call ghex_free(eds(i))
-    ! deallocate(data_ptr(i)%ptr)
-    i = i+1
-  end do
-
   call ghex_finalize()
+
+
 
   ! ---- BIFROST-like comm ----
   if (.true.) then
+     
     ! compute neighbor information
     call init_mpi_nbors(rank_coord)
-
     call exchange_subarray_init
     
+
+    ! MPI EXCHANGE (1)
+    ! initialize data cubes
+    i = 1
+    do while (i <= nfields)
+       data_ptr(i)%ptr(:,:,:) = -1
+       data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank+i
+       i = i+1
+    end do
+
     i = 1
     do while (i <= nfields)
       call exchange_subarray(data_ptr(i)%ptr)
       i = i+1
     end do
+    call test_exchange(data_ptr, rank_coord)
     
+    ! time loop
     call cpu_time(tic)
     it = 0
     do while (it < niters)
@@ -468,15 +395,27 @@ PROGRAM test_halo_exchange
     end do
     call cpu_time(toc)
     if (rank == 0) then
-       print *, rank, " subarray exchange (sendrecv):      ", (toc-tic)
+       print *, rank, " subarray exchange:      ", (toc-tic)
     end if
     
+
+    ! MPI EXCHANGE (2)
+    ! initialize data cubes
+    i = 1
+    do while (i <= nfields)
+       data_ptr(i)%ptr(:,:,:) = -1
+       data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank+i
+       i = i+1
+    end do
+
     i = 1
     do while (i <= nfields)
       call update_sendrecv(data_ptr(i)%ptr)
       i = i+1
     end do
+    call test_exchange(data_ptr, rank_coord)
 
+    ! time loop
     it = 0
     call cpu_time(tic)
     do while (it < niters)
@@ -489,15 +428,27 @@ PROGRAM test_halo_exchange
     end do
     call cpu_time(toc)
     if (rank == 0) then
-       print *, rank, " bifrost exchange (sendrecv):      ", (toc-tic)
+       print *, rank, " bifrost exchange 1:      ", (toc-tic)
     end if
+
+
+    ! MPI EXCHANGE (3)
+    ! initialize data cubes
+    i = 1
+    do while (i <= nfields)
+       data_ptr(i)%ptr(:,:,:) = -1
+       data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank+i
+       i = i+1
+    end do
 
     i = 1
     do while (i <= nfields)
       call update_sendrecv_2(data_ptr(i)%ptr)
       i = i+1
     end do
+    call test_exchange(data_ptr, rank_coord)
 
+    ! time loop
     call cpu_time(tic)
     it = 0
     do while (it < niters)
@@ -510,7 +461,7 @@ PROGRAM test_halo_exchange
     end do
     call cpu_time(toc)
     if (rank == 0) then
-      print *, rank, " bifrost exchange 2 (sendrecv):      ", (toc-tic)
+      print *, rank, " bifrost exchange 2:      ", (toc-tic)
     end if
   end if
   
@@ -894,5 +845,54 @@ contains
          1, T_RECVZUP_REAL4, R_ZUP, 1 , &
          C_CART,status,ierr)
   end subroutine comm_z_subarray
+
+  subroutine test_exchange(data_ptr, rank_coord)
+    type(hptr), intent(in), dimension(:) :: data_ptr
+    integer, intent(in) :: rank_coord(3)             ! local rank coordinates in a cartesian rank space    
+    integer :: nbor_coord(3), nbor_rank, ix, iy, iz, jx, jy, jz
+    real(kind=4), dimension(:,:,:), pointer :: data
+    integer :: isx(-1:1), iex(-1:1)
+    integer :: isy(-1:1), iey(-1:1)
+    integer :: isz(-1:1), iez(-1:1)
+    integer :: i, j, k, did
+    logical :: err
+
+    err = .false.
+    isx = (/xsb, xs, xe+1/);
+    iex = (/xs-1, xe, xeb/);
+
+    isy = (/ysb, ys, ye+1/);
+    iey = (/ys-1, ye, yeb/);
+
+    isz = (/zsb, zs, ze+1/);
+    iez = (/zs-1, ze, zeb/);
+
+    did = 1
+    do while(did<nfields)
+       i = -1
+       do while (i<=1)
+          j = -1
+          do while (j<=1)
+             k = -1
+             do while (k<=1)
+
+                ! get nbor rank
+                nbor_coord = rank_coord + (/i,j,k/);
+                call ghex_cart_coord2rank(C_CART, gdim, lperiodic, nbor_coord, nbor_rank, cart_order)
+
+                ! check cube values
+                if (.not.all(data_ptr(did)%ptr(isx(i):iex(i), isy(j):iey(j), isz(k):iez(k))==nbor_rank+did)) then
+                   print *, "wrong halo ", i, j, k
+                   err = .true.
+                end if
+                k = k+1
+             end do
+             j = j+1
+          end do
+          i = i+1
+       end do
+       did = did+1
+    end do
+  end subroutine test_exchange
 
 END PROGRAM

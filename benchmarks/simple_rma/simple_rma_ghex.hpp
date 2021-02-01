@@ -99,13 +99,13 @@ struct simulation : public simulation_base<simulation>
         {
             fields[j].push_back(gridtools::ghex::wrap_field<gridtools::ghex::cpu,2,1,0>(
                 local_domains[j],
-                raw_fields[j].back().host_data(),
+                raw_fields[j][i].host_data(),
                 offset,
                 local_ext_buffer));
 #ifdef __CUDACC__
             fields_gpu[j].push_back(gridtools::ghex::wrap_field<gridtools::ghex::gpu,2,1,0>(
                 local_domains[j],
-                raw_fields[j].back().device_data(),
+                raw_fields[j][i].device_data(),
                 offset,
                 local_ext_buffer));
 #endif

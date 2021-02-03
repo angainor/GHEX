@@ -27,7 +27,7 @@ PROGRAM test_halo_exchange
   integer :: halo(6)                   ! halo definition
   integer :: mb = 5                    ! halo width
   integer :: niters = 1000
-  integer :: cart_order = CartOrderXYZ
+  integer :: cart_order = 0
   integer, parameter :: nfields_max = 8
   integer :: nfields
 
@@ -178,6 +178,7 @@ PROGRAM test_halo_exchange
   if (world_rank==0) then
      print *, "--------------------------"
   end if
+  
   if (remap) then
 
      ! construct topology info to reorder the ranks
@@ -195,32 +196,33 @@ PROGRAM test_halo_exchange
         write (*,*)
         write (*,"(A)",ADVANCE='NO') "Using rank remapping with cartesian communicator order "
         select case (cart_order)
-          case (CartOrderXYZ)
-             print *, "XYZ"
+        case (CartOrderXYZ)
+           print *, "XYZ"
 
-          case (CartOrderXZY)
-             print *, "XZY"
+        case (CartOrderXZY)
+           print *, "XZY"
 
-          case (CartOrderZYX)
-             print *, "ZYX"
+        case (CartOrderZYX)
+           print *, "ZYX"
 
-          case (CartOrderYZX)
-             print *, "YZX"
+        case (CartOrderYZX)
+           print *, "YZX"
 
-          case (CartOrderZXY)
-             print *, "ZXY"
+        case (CartOrderZXY)
+           print *, "ZXY"
 
-          case (CartOrderYXZ)
-             print *, "YXZ"
+        case (CartOrderYXZ)
+           print *, "YXZ"
 
-          case default
-             print *, "unknown value of argument 'cart_order': ", cart_order
-             call exit
-          end select
+        case default
+           print *, "unknown value of argument 'cart_order': ", cart_order
+           call exit
+        end select
      end if
 
      ! print rank topology
      call ghex_cart_print_rank_topology(C_CART, domain, topology, cart_order)
+
   else
      if (world_rank==0) then
         print *, "Using standard MPI cartesian communicator"
@@ -235,15 +237,9 @@ PROGRAM test_halo_exchange
      end block
   end if
 
-  ! init ghex
-  call ghex_init(nthreads, C_CART)
 
-  ! create ghex communicator
-  comm = ghex_comm_new()
+  ! ------------- common init
 
-  ! create communication object
-  call ghex_co_init(co, comm)
-  
   ! halo information
   halo(:) = 0
   halo(1:2) = mb
@@ -251,6 +247,7 @@ PROGRAM test_halo_exchange
   halo(5:6) = mb
 
   call mpi_comm_rank(C_CART, rank, mpi_err)
+
   if (rank==0) then
      print *, "halos: ", halo
      print *, "domain dist: ", gdim
@@ -258,22 +255,21 @@ PROGRAM test_halo_exchange
   end if
 
   if (world_size /= product(gdim)) then
-    print *, "Usage: this test must be executed with ", product(gdim), " mpi ranks"
-    call exit(1)
+     print *, "Usage: this test must be executed with ", product(gdim), " mpi ranks"
+     call exit(1)
   end if
+
+  ! local indices in the rank index space
+  call ghex_cart_rank2coord(C_CART, gdim, rank, rank_coord, cart_order)
 
   ! define the global index domain
   gfirst = [1, 1, 1]
   glast = gdim * ldim
 
-  ! local indices in the rank index space
-  call ghex_cart_rank2coord(C_CART, gdim, rank, rank_coord, cart_order)
-
   ! define the local domain
   first = (rank_coord) * ldim + 1
   last  = first + ldim - 1
-  call ghex_domain_init(domain_desc, rank, first, last, gfirst, glast)
-
+  
   ! define local index ranges
   xs  = first(1)
   xe  = last(1)
@@ -299,172 +295,187 @@ PROGRAM test_halo_exchange
   ! allocate and initialize data cubes
   i = 1
   do while (i <= nfields)
-    allocate(data_ptr(i)%ptr(xsb:xeb, ysb:yeb, zsb:zeb), source=0.0)
-    data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank
-    i = i+1
-  end do
-
-  ! ---- GHEX tests ----
-  ! initialize the field datastructure
-  i = 1
-  do while (i <= nfields)
-     call ghex_field_init(field_desc, data_ptr(i)%ptr, halo, periodic=periodic)
-     call ghex_domain_add_field(domain_desc, field_desc)
-     call ghex_free(field_desc)
+     allocate(data_ptr(i)%ptr(xsb:xeb, ysb:yeb, zsb:zeb), source=0.0)
+     data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank
      i = i+1
   end do
 
-  ! compute the halo information for all domains and fields
-  ed = ghex_exchange_desc_new(domain_desc)
 
-  ! initialize data cubes
-  i = 1
-  do while (i <= nfields)
-     data_ptr(i)%ptr(:,:,:) = -1
-     data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank+i
-     i = i+1
-  end do
-
-  ! warmup
-  it = 0
-  do while (it < 10)
-     eh = ghex_exchange(co, ed)
-     call ghex_wait(eh)
-     call ghex_free(eh)
-     it = it+1;
-  end do
-  call test_exchange(data_ptr, rank_coord)
-
-  ! time loop
-  it = 0
-  call cpu_time(tic)
-  do while (it < niters)
-     eh = ghex_exchange(co, ed)
-     call ghex_wait(eh)
-     call ghex_free(eh)
-     it = it+1
-  end do
-  call cpu_time(toc)
-  if (rank == 0) then
-     print *, rank, " exchange (GHEX):      ", (toc-tic)
-  end if
   
+  if (.true.) then
 
-  ! cleanup GHEX
-  call ghex_free(domain_desc)
-  call ghex_free(co)
-  call ghex_free(ed)
-  call ghex_finalize()
+     ! ------ ghex
+     call ghex_init(nthreads, C_CART)
+
+     ! create ghex communicator
+     comm = ghex_comm_new()
+
+     ! create communication object
+     call ghex_co_init(co, comm)
+
+     call ghex_domain_init(domain_desc, rank, first, last, gfirst, glast)
+
+     ! ---- GHEX tests ----
+     ! initialize the field datastructure
+     i = 1
+     do while (i <= nfields)
+        call ghex_field_init(field_desc, data_ptr(i)%ptr, halo, periodic=periodic)
+        call ghex_domain_add_field(domain_desc, field_desc)
+        call ghex_free(field_desc)
+        i = i+1
+     end do
+
+     ! compute the halo information for all domains and fields
+     ed = ghex_exchange_desc_new(domain_desc)
+
+     ! initialize data cubes
+     i = 1
+     do while (i <= nfields)
+        data_ptr(i)%ptr(:,:,:) = -1
+        data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank+i
+        i = i+1
+     end do
+
+     ! warmup
+     it = 0
+     do while (it < 10)
+        eh = ghex_exchange(co, ed)
+        call ghex_wait(eh)
+        call ghex_free(eh)
+        it = it+1;
+     end do
+     call test_exchange(data_ptr, rank_coord)
+
+     ! time loop
+     it = 0
+     call cpu_time(tic)
+     do while (it < niters)
+        eh = ghex_exchange(co, ed)
+        call ghex_wait(eh)
+        call ghex_free(eh)
+        it = it+1
+     end do
+     call cpu_time(toc)
+     if (rank == 0) then
+        print *, "exchange GHEX:      ", (toc-tic)
+     end if
 
 
+     ! cleanup GHEX
+     call ghex_free(domain_desc)
+     call ghex_free(co)
+     call ghex_free(ed)
+     call ghex_finalize()
+
+  end if
 
   ! ---- BIFROST-like comm ----
   if (.true.) then
-     
-    ! compute neighbor information
-    call init_mpi_nbors(rank_coord)
-    call exchange_subarray_init
-    
 
-    ! MPI EXCHANGE (1)
-    ! initialize data cubes
-    i = 1
-    do while (i <= nfields)
-       data_ptr(i)%ptr(:,:,:) = -1
-       data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank+i
-       i = i+1
-    end do
+     ! compute neighbor information
+     call init_mpi_nbors(rank_coord)
+     call exchange_subarray_init
 
-    i = 1
-    do while (i <= nfields)
-      call exchange_subarray(data_ptr(i)%ptr)
-      i = i+1
-    end do
-    call test_exchange(data_ptr, rank_coord)
-    
-    ! time loop
-    call cpu_time(tic)
-    it = 0
-    do while (it < niters)
-      i = 1
-      do while (i <= nfields)
+
+     ! MPI EXCHANGE (1)
+     ! initialize data cubes
+     i = 1
+     do while (i <= nfields)
+        data_ptr(i)%ptr(:,:,:) = -1
+        data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank+i
+        i = i+1
+     end do
+
+     i = 1
+     do while (i <= nfields)
         call exchange_subarray(data_ptr(i)%ptr)
         i = i+1
-      end do
-      it = it+1
-    end do
-    call cpu_time(toc)
-    if (rank == 0) then
-       print *, rank, " subarray exchange:      ", (toc-tic)
-    end if
-    
+     end do
+     call test_exchange(data_ptr, rank_coord)
 
-    ! MPI EXCHANGE (2)
-    ! initialize data cubes
-    i = 1
-    do while (i <= nfields)
-       data_ptr(i)%ptr(:,:,:) = -1
-       data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank+i
-       i = i+1
-    end do
+     ! time loop
+     call cpu_time(tic)
+     it = 0
+     do while (it < niters)
+        i = 1
+        do while (i <= nfields)
+           call exchange_subarray(data_ptr(i)%ptr)
+           i = i+1
+        end do
+        it = it+1
+     end do
+     call cpu_time(toc)
+     if (rank == 0) then
+        print *, "subarray exchange:      ", (toc-tic)
+     end if
 
-    i = 1
-    do while (i <= nfields)
-      call update_sendrecv(data_ptr(i)%ptr)
-      i = i+1
-    end do
-    call test_exchange(data_ptr, rank_coord)
 
-    ! time loop
-    it = 0
-    call cpu_time(tic)
-    do while (it < niters)
-      i = 1
-      do while (i <= nfields)
+     ! MPI EXCHANGE (2)
+     ! initialize data cubes
+     i = 1
+     do while (i <= nfields)
+        data_ptr(i)%ptr(:,:,:) = -1
+        data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank+i
+        i = i+1
+     end do
+
+     i = 1
+     do while (i <= nfields)
         call update_sendrecv(data_ptr(i)%ptr)
         i = i+1
-      end do
-      it = it+1
-    end do
-    call cpu_time(toc)
-    if (rank == 0) then
-       print *, rank, " bifrost exchange 1:      ", (toc-tic)
-    end if
+     end do
+     call test_exchange(data_ptr, rank_coord)
+
+     ! time loop
+     it = 0
+     call cpu_time(tic)
+     do while (it < niters)
+        i = 1
+        do while (i <= nfields)
+           call update_sendrecv(data_ptr(i)%ptr)
+           i = i+1
+        end do
+        it = it+1
+     end do
+     call cpu_time(toc)
+     if (rank == 0) then
+        print *, "bifrost exchange 1:      ", (toc-tic)
+     end if
 
 
-    ! MPI EXCHANGE (3)
-    ! initialize data cubes
-    i = 1
-    do while (i <= nfields)
-       data_ptr(i)%ptr(:,:,:) = -1
-       data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank+i
-       i = i+1
-    end do
+     ! MPI EXCHANGE (3)
+     ! initialize data cubes
+     i = 1
+     do while (i <= nfields)
+        data_ptr(i)%ptr(:,:,:) = -1
+        data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank+i
+        i = i+1
+     end do
 
-    i = 1
-    do while (i <= nfields)
-      call update_sendrecv_2(data_ptr(i)%ptr)
-      i = i+1
-    end do
-    call test_exchange(data_ptr, rank_coord)
-
-    ! time loop
-    call cpu_time(tic)
-    it = 0
-    do while (it < niters)
-      i = 1
-      do while (i <= nfields)
+     i = 1
+     do while (i <= nfields)
         call update_sendrecv_2(data_ptr(i)%ptr)
         i = i+1
-      end do
-      it = it+1
-    end do
-    call cpu_time(toc)
-    if (rank == 0) then
-      print *, rank, " bifrost exchange 2:      ", (toc-tic)
-    end if
+     end do
+     call test_exchange(data_ptr, rank_coord)
+
+     ! time loop
+     call cpu_time(tic)
+     it = 0
+     do while (it < niters)
+        i = 1
+        do while (i <= nfields)
+           call update_sendrecv_2(data_ptr(i)%ptr)
+           i = i+1
+        end do
+        it = it+1
+     end do
+     call cpu_time(toc)
+     if (rank == 0) then
+        print *, "bifrost exchange 2:      ", (toc-tic)
+     end if
   end if
-  
+
   call mpi_barrier(mpi_comm_world, mpi_err)
   call mpi_finalize(mpi_err)
 

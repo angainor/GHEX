@@ -61,6 +61,11 @@ PROGRAM test_halo_exchange
   type(ghex_struct_exchange_descriptor)  :: ed           ! exchange descriptor
   type(ghex_struct_exchange_handle)      :: eh           ! exchange handle
 
+  ! one field per domain, multiple domains
+  type(ghex_struct_domain),               dimension(:) :: domain_descs(nfields_max)
+  type(ghex_struct_communication_object), dimension(:) :: cos(nfields_max)
+  type(ghex_struct_exchange_descriptor),  dimension(:) :: eds(nfields_max)
+  
   ! init mpi
   call mpi_init_thread (MPI_THREAD_SINGLE, mpi_threading, mpi_err)
   call mpi_comm_rank(mpi_comm_world, world_rank, mpi_err)
@@ -296,11 +301,8 @@ PROGRAM test_halo_exchange
   i = 1
   do while (i <= nfields)
      allocate(data_ptr(i)%ptr(xsb:xeb, ysb:yeb, zsb:zeb), source=0.0)
-     data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank
      i = i+1
   end do
-
-
   
   if (.true.) then
 
@@ -314,6 +316,13 @@ PROGRAM test_halo_exchange
      call ghex_co_init(co, comm)
 
      call ghex_domain_init(domain_desc, rank, first, last, gfirst, glast)
+
+     ! make individual copies for sequenced comm
+     i = 1
+     do while (i <= nfields)
+        call ghex_domain_init(domain_descs(i), rank, first, last, gfirst, glast)
+        i = i+1
+     end do
 
      ! ---- GHEX tests ----
      ! initialize the field datastructure
@@ -360,11 +369,117 @@ PROGRAM test_halo_exchange
         print *, "exchange GHEX:      ", (toc-tic)
      end if
 
+     call ghex_free(co)
+     call ghex_free(domain_desc)
+     call ghex_free(ed)
+
+     ! sequenced tests
+     if(.false.) then
+        
+        ! initialize the field datastructure
+        ! compute the halo information for all domains and fields
+        i = 1
+        do while (i <= nfields)
+           call ghex_field_init(field_desc, data_ptr(i)%ptr, halo, periodic=periodic)
+           call ghex_domain_add_field(domain_descs(i), field_desc)
+           call ghex_free(field_desc)
+           eds(i) = ghex_exchange_desc_new(domain_descs(i))
+           i = i+1
+        end do
+
+        ! create communication objects
+        i = 1
+        do while (i <= nfields)
+           call ghex_co_init(cos(i), comm)
+           i = i+1
+        end do
+
+        ! initialize data cubes
+        i = 1
+        do while (i <= nfields)
+           data_ptr(i)%ptr(:,:,:) = -1
+           data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank+i
+           i = i+1
+        end do
+
+        ! exchange halos
+        it = 0
+        do while (it < 10)
+           i = 1
+           do while (i <= nfields)
+              eh = ghex_exchange(cos(i), eds(i)); call ghex_wait(eh)
+              i = i+1
+           end do
+           it = it+1
+        end do
+        call test_exchange(data_ptr, rank_coord)
+
+        it = 0
+        call cpu_time(tic)
+        do while (it < niters)
+           i = 1
+           do while (i <= nfields)
+              eh = ghex_exchange(cos(i), eds(i)); call ghex_wait(eh)
+              i = i+1
+           end do
+           it = it+1
+        end do
+        call cpu_time(toc)
+        if (rank == 0) then
+           print *, "exchange sequenced (multiple COs):      ", (toc-tic);
+        end if
+
+
+        if(.false.) then
+           ! WARNING: the below cannot be run for bulk communicatio objects
+           call ghex_co_init(co, comm)
+
+           ! initialize data cubes
+           i = 1
+           do while (i <= nfields)
+              data_ptr(i)%ptr(:,:,:) = -1
+              data_ptr(i)%ptr(xs:xe, ys:ye, zs:ze) = rank+i
+              i = i+1
+           end do
+
+           ! exchange halos
+           it = 0
+           do while (it < 10)
+              i = 1
+              do while (i <= nfields)
+                 eh = ghex_exchange(co, eds(i)); call ghex_wait(eh)
+                 i = i+1
+              end do
+              it = it+1
+           end do
+           call test_exchange(data_ptr, rank_coord)
+
+           it = 0
+           call cpu_time(tic)
+           do while (it < niters)
+              i = 1
+              do while (i <= nfields)
+                 eh = ghex_exchange(co, eds(i)); call ghex_wait(eh)
+                 i = i+1
+              end do
+              it = it+1
+           end do
+           call cpu_time(toc)
+           if (rank == 0) then
+              print *, "exchange sequenced (single CO):      ", (toc-tic);
+           end if
+        end if
+
+        i = 1
+        do while (i <= nfields)
+           call ghex_free(domain_descs(i))
+           call ghex_free(cos(i))
+           call ghex_free(eds(i))
+           i = i+1
+        end do
+     end if
 
      ! cleanup GHEX
-     call ghex_free(domain_desc)
-     call ghex_free(co)
-     call ghex_free(ed)
      call ghex_finalize()
 
   end if
@@ -879,7 +994,7 @@ contains
     iez = (/zs-1, ze, zeb/);
 
     did = 1
-    do while(did<nfields)
+    do while(did<=nfields)
        i = -1
        do while (i<=1)
           j = -1
@@ -906,4 +1021,18 @@ contains
     end do
   end subroutine test_exchange
 
+  subroutine print_cube_3d(data)
+    real(ghex_fp_kind), dimension(:,:,:), pointer :: data
+    integer :: extents(3), i, j, k
+
+    do i=xsb,xeb
+      do j=ysb,yeb
+         do k=zsb,zeb
+            write (*, fmt="(f3.0)", advance="no") data(j,i,k)
+         end do
+         write(*,*)
+      end do
+      write(*,*)
+    end do
+  end subroutine print_cube_3d
 END PROGRAM

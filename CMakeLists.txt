@@ -195,6 +195,7 @@ if (GHEX_BUILD_TESTS OR GHEX_BUILD_BENCHMARKS)
 endif()
 
 if (GHEX_BUILD_FORTRAN)
+   enable_language(Fortran)
    add_subdirectory(bindings)
 endif()
 

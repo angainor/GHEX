@@ -29,6 +29,11 @@ MODULE ghex_structured_mod
      integer(c_int) :: last(3)              ! indices of the last LOCAL grid point, in global index space
      integer(c_int) :: gfirst(3) = [1,1,1]  ! indices of the first GLOBAL grid point, (1,1,1) by default
      integer(c_int) :: glast(3)             ! indices of the last GLOBAL grid point (model dimensions)
+
+     ! optional, used by the staged communication object
+     integer(c_int) :: cart_comm = 0        ! cartesian communicator
+     integer(c_int) :: cart_order = 0       ! cartesian communicator
+     integer(c_int) :: cart_dim(3) = [0,0,0]! rank dimensions in the cartesian communicator
   end type ghex_struct_domain
 
   ! structured grid communication object
@@ -142,15 +147,28 @@ MODULE ghex_structured_mod
 
 CONTAINS
 
-  subroutine ghex_struct_domain_init(domain_desc, id, first, last, gfirst, glast, device_id)
+  subroutine ghex_struct_domain_init(domain_desc, id, first, last, gfirst, glast, cart_comm, cart_order, cart_dim, device_id)
     type(ghex_struct_domain) :: domain_desc
     integer :: id
     integer :: first(3)
     integer :: last(3)
     integer :: gfirst(3)
     integer :: glast(3)
+    integer, optional :: cart_comm
+    integer, optional :: cart_order
+    integer, optional :: cart_dim(3)
     integer, optional :: device_id
 
+    if (present(cart_comm).or.present(cart_dim).or.present(cart_order)) then
+      if (.not.(present(cart_dim).and.present(cart_comm).and.present(cart_order))) then
+        write (*,*) "ERROR: cart_comm, cart_order, and cart_dim arguments must ALL be present"
+        call exit(1)
+      end if
+      domain_desc%cart_dim = cart_dim
+      domain_desc%cart_comm = cart_comm
+      domain_desc%cart_order = cart_order
+    end if
+    
     if (present(device_id)) then
       domain_desc%device_id = device_id
     else

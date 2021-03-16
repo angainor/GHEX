@@ -1,7 +1,6 @@
 find_package(OpenMP REQUIRED)
 
-set(_tests_np2 test_f_context test_f_communicator test_f_message test_f_barrier test_f_send_recv_ft
-    test_f_send_multi test_f_send_recv_cb)
+set(_tests test_f_context test_f_communicator test_f_message test_f_barrier test_f_send_recv_ft test_f_send_multi test_f_send_recv_cb test_f_cubed_sphere)
 
 foreach (_t ${_tests_np2})
   add_executable(${_t} ${_t}.f90)
@@ -46,10 +45,13 @@ endforeach ()
 
 set(_tests_bench test_f_structured test_f_structured_components)
 
+find_package(HWLOC)
+find_package(HWCART)
+
 foreach (_t ${_tests_bench})
   add_executable(${_t} ${_t}.f90)
   target_compile_options(${_t} PRIVATE ${OpenMP_CXX_FLAGS})
   target_compile_options(${_t} PRIVATE ${GHEX_FORTRAN_FLAGS})
   target_include_directories(${_t} PRIVATE ${CMAKE_SOURCE_DIR}/include ${PROJECT_BINARY_DIR}/bindings/ ${MPI_Fortran_INCLUDE_DIRS})
-  target_link_libraries(${_t} PRIVATE fhex OpenMP::OpenMP_CXX)
+  target_link_libraries(${_t} fhex OpenMP::OpenMP_CXX HWCART::libhwcart HWLOC::libhwloc)
 endforeach ()
